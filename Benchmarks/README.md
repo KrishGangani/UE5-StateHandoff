@@ -9,7 +9,7 @@ Every number in this project's write-up must trace back to a file in this folder
 1. **Instrument first, baselines second.** The invariant checker is built and proven on B0 before anything else (S2). B0–B3 are captured before the hand-off exists (S3), on the same workload, build and machine as every later run.
 2. **Packaged Development build only** (never PIE, never the editor). The launcher engine can't build Test.
 3. **Fixed step** (`-deterministic -FPS=60`), real GPU, windowed 1280×720, `-novsync`, `-nosound`. The capture window is opened and closed by the game itself (`BenchStart` / `BenchEnd` CSV events; `BenchFlip` marks each camera flip), never by a timer.
-4. **Pinned to the performance cores.** `Tools/run_bench.py` (S2) starts the real executable `Build\Windows\StateHandoff\Binaries\Win64\StateHandoff.exe` with `subprocess.Popen`, pins it at once with `pin_process(pid, performance_core_mask())` from `Tools/cpu_affinity.py` (mask `0xFFFF` = logical CPUs 0–15 on this i7-14650HX), waits with a timeout and kills the process tree in a `finally` block. The applied mask is recorded per run. Never `cmd /c start /wait` (it always returns 0).
+4. **Pinned to the performance cores.** `Tools/run_bench.py` (S2) pins itself once with `pin_self(performance_core_mask())` from `Tools/cpu_affinity.py` (mask `0xFFFF` = logical CPUs 0–15 on this i7-14650HX) before recording the environment or starting anything, so every game it starts inherits the mask. It records `applied_mask()` (read back from Windows), starts the real executable `Build\Windows\StateHandoff\Binaries\Win64\StateHandoff.exe` with `subprocess.Popen`, waits with a timeout and kills the process tree in a `finally` block. Never `cmd /c start /wait` (it always returns 0).
 5. **One discarded priming run per batch**, then **interleaved runs with the config order rotated every round**; **runs per combination = the number of configs in the batch**, so each config sits in each order position once. Combinations no success criterion needs are skipped.
 6. **Correctness runs** (checker on) and **timing runs** (checker off) are separate batches, so the instrument never adds cost to a timing result.
 7. **Mass is not frame-deterministic even under `-deterministic`** (wall-clock spawn/destroy budgets). Correctness is reported **per 1,000 representation transitions**, with the transition count of every run; a zero count is reported with its 95% upper bound (3 / transitions).
@@ -39,7 +39,7 @@ Engine:            UE 5.8.4 (CL 58902052), launcher build
 Build:             Development, standalone packaged (never PIE)
 Compiler:          MSVC 14.44.35229 (VS 2022 17.14), Windows SDK 10.0.22621.0
 CPU / GPU / RAM:   i7-14650HX (8P + 8E) / RTX 5070 Laptop (driver recorded per batch) / 32 GB
-CPU affinity:      0xFFFF (performance cores only), applied per run and recorded per run
+CPU affinity:      0xFFFF (performance cores only): the batch script pins itself; applied_mask() read back and recorded
 Storage:           project on D: (Kingston NVMe), engine on C: (WD NVMe)
 OS:                Windows 11 build 26200
 Power:             AC, power plan recorded per batch

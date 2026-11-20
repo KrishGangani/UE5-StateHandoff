@@ -4,11 +4,11 @@
 
 **Domain:** Large-scale gameplay architecture · data-oriented design · **Difficulty:** ★★★★★ · **Engine:** UE 5.8.4
 
-> **Status: in progress. There are no results yet.** Phases 1–3 are done (problem analysis, verified research, final architecture); Phase 4 (the UE project foundation) is being built and checked. Sections marked *(pending)* are filled in only from real measurements, in the phase named. The success criteria are **targets fixed before any code exists, not results**.
+> **Status: in progress. There are no results yet.** Phases 1–4 are done: problem analysis, verified research, final architecture, and the UE project foundation (built with 0 errors and 0 warnings, packaged with MassGameplay enabled, smoke-tested). Next: Phase 5, step S1. Sections marked *(pending)* are filled in only from real measurements, in the phase named. The success criteria are **targets fixed before any code exists, not results**.
 
 | Phase | 1 Problem | 2 Research | 3 Architecture | 4 Foundation | 5 Implementation | 6 Explanation | 7 Testing | 8 Profiling | 9 Review | 10 Portfolio |
 |---|---|---|---|---|---|---|---|---|---|---|
-| State | ✓ | ✓ | ✓ final | in progress | — | — | — | — | — | — |
+| State | ✓ | ✓ | ✓ final | ✓ | next (S1 of 8) | ongoing | — | — | — | — |
 
 ---
 
