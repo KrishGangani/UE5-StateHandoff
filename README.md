@@ -94,3 +94,7 @@ P09_StateHandoff\
 ├── Tools\           ← build/package/smoke scripts; CPU pinning; later the stats and run scripts
 └── StateHandoff\    ← the Unreal Engine project (.uproject, Source, Plugins, Config)
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE). Unreal Engine itself is not included and is covered by Epic Games' own license.
