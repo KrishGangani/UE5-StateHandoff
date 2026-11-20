@@ -5,7 +5,7 @@
 | Part | Step | Files |
 |---|---|---|
 | A | Phase 4, F1–F4 (foundation) | `.uproject`, two `Target.cs`, two `Build.cs`, two module `.cpp`, `.uplugin`, three config `.ini`, `Tools\*.bat`, `Tools\cpu_affinity.py` |
-| B | S1 onwards | written with the code (Phase 5) |
+| B | S1 (workload skeleton: Mass only) | `SHDemoTypes.h`, `SHDemoStateTrait`, `SHDemoAgent`, `SHMassProcessors`, `SHBenchmarkSubsystem`; `Build.cs` and `DefaultGame.ini` changes; `Tools\run_uncooked.bat`, `run_packaged.bat` |
 
 ---
 
@@ -92,7 +92,7 @@ public class StateHandoff : ModuleRules
 | `ReadOnlyTargetRules Target` | A module can read target settings (platform, configuration) but not change them, so module rules can't fight each other |
 | `PCHUsage = UseExplicitOrSharedPCHs` | Use a **shared precompiled header** built by the engine for a common dependency set, unless the module names its own. Precompiled headers make each `.cpp` compile faster. The template uses the same (`TP_Blank.Build.cs:9`). *Rejected:* `NoPCHs` (slow); a private PCH (unneeded for a small module) |
 | `PublicDependencyModuleNames … Core, CoreUObject, Engine` | `Core`: containers, strings, logging, the module macros. `CoreUObject`: UObject, reflection, GC. `Engine`: actors, components, worlds. **Public** because the later public headers (an actor, subsystems) expose engine types; the rule is "private unless a public header needs it" |
-| The comment "Phase 4: only the engine basics" | The Mass modules and `StateHandoffCore` are **not** listed yet: no code includes their headers. Adding them with the first code keeps the list honest. Enabling the MassGameplay *plugin* in the `.uproject` is enough to build, link and package its modules now (UBT adds every module of an enabled plugin that compiles in the current configuration to the target, `Source/Programs/UnrealBuildTool/Configuration/UEBuildTarget.cs:5164–5193`), which is what the Phase 4 check needs |
+| The comment "Phase 4: only the engine basics" (**replaced in S1**: see B6) | The Mass modules and `StateHandoffCore` are **not** listed yet: no code includes their headers. Adding them with the first code keeps the list honest. Enabling the MassGameplay *plugin* in the `.uproject` is enough to build, link and package its modules now (UBT adds every module of an enabled plugin that compiles in the current configuration to the target, `Source/Programs/UnrealBuildTool/Configuration/UEBuildTarget.cs:5164–5193`), which is what the Phase 4 check needs |
 | *Not included:* `InputCore`, `EnhancedInput` | The template adds them (`TP_Blank.Build.cs:11`), but this project reads no player input in code |
 
 ### A4. `Source\StateHandoff\Private\StateHandoffModule.cpp`
@@ -242,3 +242,129 @@ All five scripts start with `@echo off` (don't echo each command), use `setlocal
 | `pin_self(mask)` | `SetProcessAffinityMask(GetCurrentProcess(), mask)`: restricts the **batch script itself**. Windows gives a new process its parent's affinity, so every game the script starts afterwards is pinned from its first instruction, engine start-up included. One call instead of pinning each child after `Popen` (which left a start-up window) |
 | `applied_mask()` | `GetProcessAffinityMask` reads the mask back from Windows, so the environment record shows what was **applied**, not what was requested; it says whether that is all logical processors or the P-cores only |
 | `if __name__ == "__main__":` | `python -I cpu_affinity.py` prints the mask: on this machine `0xFFFF` (logical CPUs 0–15), checked on 2026-11-21 (`09` T-1, T-2) |
+
+---
+
+## Part B · S1: workload skeleton (Mass only)
+
+S1 builds a workload that the engine's own representation LOD acts on: N Mass entities that switch between actor, instanced cube and nothing as a camera moves and jumps. Nothing about state yet. Engine paths below use `MG/` = `Plugins/Runtime/MassGameplay/Source/`, as in `01b`.
+
+### B1. `Public\SHDemoTypes.h`: the agent index and the demo tag
+
+| Line | What it does, and why |
+|---|---|
+| `#include "Mass/EntityElementTypes.h"` | Brings in `FMassFragment` and `FMassTag`, which since 5.8 live in the MassCore module (`Source/Runtime/Mass/MassCore/Public/Mass/EntityElementTypes.h:15, 40`). **Found in S1:** the first draft included the old MassEntity header `MassEntityElementTypes.h`, which 5.8 keeps only as a deprecated forwarder (`UE_DEPRECATED_HEADER`, `Source/Runtime/MassEntity/Public/MassEntityElementTypes.h:5–6`); the build reported warning C4996 in four files, so the include was changed. MassCore is already a public dependency (B6) |
+| `#include "SHDemoTypes.generated.h"` | The file the Unreal Header Tool (UHT) writes for this header's `USTRUCT`s; it must be the last include |
+| `USTRUCT() struct FSHAgentIdFragment : public FMassFragment` | A **fragment**: one plain struct per entity, stored by Mass in chunks of struct arrays. `USTRUCT()` registers it with reflection, which Mass needs to know its size and type at run time (`UScriptStruct`). Deriving from `FMassFragment` is what makes Mass treat it as a fragment; the engine's static check says a fragment must be trivially copyable (`EntityElementTypes.h:21`), so no constructors or heap members |
+| `GENERATED_BODY()` | Pastes the reflection boilerplate UHT generated (e.g. `StaticStruct()`) into the struct. Required in every `USTRUCT` |
+| `UPROPERTY() int32 AgentIndex = INDEX_NONE;` | The agent's position in spawn order. `int32`, the engine's index type; `INDEX_NONE` (−1) means "not set", so a forgotten initialisation is visible. `UPROPERTY()` without specifiers: visible to reflection (debuggers such as `mass.PrintEntityFragments` can print it, `01b` M-2) but not editable or exposed to Blueprint. **Why an index and not a map keyed by entity handle:** the oracle and the checker (S2) keep one array slot per agent, which is cheaper and simpler than hashing handles every frame |
+| `USTRUCT() struct FSHDemoAgentTag : public FMassTag` | A **tag**: a type with no data that an entity either has or doesn't. Mass stores tags as bits in the archetype, so a tag costs no memory per entity. Every processor of this project requires it, as MassCrowd does with `FMassCrowdTag` (`Plugins/AI/MassCrowd/Source/MassCrowd/Private/MassCrowdVisualizationProcessor.cpp:31–35`), so the project never touches entities other systems spawn |
+
+### B2. `SHDemoStateTrait.h` / `.cpp`: what every demo entity is made of
+
+| Line | What it does, and why |
+|---|---|
+| `#include "MassEntityTraitBase.h"` | The trait base class, from the MassSpawner module (`MG/MassSpawner/Public/MassEntityTraitBase.h:18`) |
+| `UCLASS(meta = (DisplayName = "SH Demo State"))` | A reflected class, so Mass can create and list it (traits are `UObject`s that live in entity configs). The display name is what the editor would show in a config asset |
+| `class USHDemoStateTrait : public UMassEntityTraitBase` | A **trait** is a reusable recipe of fragments and tags; entity configs are lists of traits (`MassEntityTraitBase.h:11–15`) |
+| `virtual void BuildTemplate(FMassEntityTemplateBuildContext& BuildContext, const UWorld& World) const override;` | The one function a trait must implement (pure virtual, `MassEntityTraitBase.h:51`). `const`: building a template must not change the trait. `override`: the compiler checks the signature matches the base. Protected, as the engine's visualization trait declares it (`MG/MassRepresentation/Public/MassVisualizationTrait.h:84`) |
+| `BuildContext.AddFragment<FTransformFragment>();` | Every demo entity has a transform. The visualization trait only **requires** it (`MG/MassRepresentation/Private/MassVisualizationTrait.cpp:68`), it doesn't add it; a missing required fragment fails template validation. `FTransformFragment` moved to MassCore in 5.8 (`Source/Runtime/Mass/MassCore/Public/Mass/EntityFragments.h:10`) |
+| `BuildContext.AddFragment<FMassActorFragment>();` | Where Mass stores the entity's actor, when it has one. Also only *required* by the visualization trait (`MassVisualizationTrait.cpp:69`) |
+| `BuildContext.AddFragment<FSHAgentIdFragment>();` / `AddTag<FSHDemoAgentTag>();` | The demo's own index and tag (B1) |
+| The header comment "S2 adds the four state channels" | This trait is used in **every** configuration, so the four state fragments added in S2 exist identically in B0–B3 and SH (memory fairness, SC7) |
+
+### B3. `SHDemoAgent.h` / `.cpp`: the actor representation
+
+| Line | What it does, and why |
+|---|---|
+| `UCLASS() class ASHDemoAgent : public AActor` | The class Mass spawns for both high and low resolution (B5). One class for both gives one template index, which makes the engine keep the actor, disabled, while the entity is shown as an instanced mesh: the kept-disabled path (`01b #5`, `MassVisualizationTrait.cpp:94–95`) |
+| `UPROPERTY(VisibleAnywhere, Category = "StateHandoff") TObjectPtr<UStaticMeshComponent> Mesh;` | The only component in S1. `UPROPERTY` makes the garbage collector see the reference; `TObjectPtr` is the 5.x member-pointer type for UObjects; `VisibleAnywhere` shows it in the details panel but doesn't allow replacing it |
+| `PrimaryActorTick.bCanEverTick = false;` | The actor never needs `Tick`; Mass drives everything. It also means "disabling" the actor (the engine turns the actor tick off, `MassRepresentationActorManagement.cpp:30–45`) changes nothing for it |
+| `CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh")); RootComponent = Mesh;` | Creates the component as part of the class's default object, so every spawned or pooled instance has it. The root component is what Mass teleports |
+| `SetCollisionEnabled(NoCollision)`, `SetGenerateOverlapEvents(false)`, `SetCanEverAffectNavigation(false)` | Nothing collides or navigates in this workload. Keeping physics and navigation out removes costs that aren't the subject and can't differ between configurations |
+| `static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));` | Finds the engine cylinder once per class (`static`: the constructor runs again for every object, the lookup doesn't; `Source/Runtime/CoreUObject/Public/UObject/ConstructorHelpers.h:77`). A cylinder, so actors are easy to tell from the instanced cubes. Cooked through `DirectoriesToAlwaysCook` (B8) |
+
+### B4. `SHMassProcessors.h` / `.cpp`: making Mass representation run for the demo
+
+The engine ships the LOD collector, visualization-LOD and visualization processors **unregistered** (`MG/MassLOD/Private/MassLODCollectorProcessor.cpp:14`, `MG/MassRepresentation/Private/MassVisualizationLODProcessor.cpp:13`, `MassRepresentationProcessor.cpp:54`). A game subclasses each one, filters it to its own tag and turns registration on. The three classes copy MassCrowd's pattern exactly and add **no logic**: the switching under test is the engine's.
+
+| Line | What it does, and why |
+|---|---|
+| `class USHLODCollectorProcessor : public UMassLODCollectorProcessor` | Computes each entity's distance and visibility to the viewers (the camera). Constructor: `bAutoRegisterWithProcessingPhases = true`, as MassCrowd's collector (`Plugins/AI/MassCrowd/Source/MassCrowd/Private/MassCrowdVisualizationLODProcessor.cpp:112–115`). The LOD collector trait checks that some collector subclass is registered and logs an error otherwise (`MG/MassLOD/Private/MassLODTrait.cpp:16–72, 86–95`) |
+| Its `ConfigureQueries`: `Super::ConfigureQueries(EntityManager);` then four `AddTagRequirement<FSHDemoAgentTag>(EMassFragmentPresence::All)` | First let the engine build its four queries, then narrow each to entities that have the demo tag. `EMassFragmentPresence::All` = "must have it". Same four queries as MassCrowd (`MassCrowdVisualizationLODProcessor.cpp:117–125`) |
+| `class USHVisualizationLODProcessor : public UMassVisualizationLODProcessor` | Turns distance and visibility into LOD High/Medium/Low/Off, and applies the per-LOD entity caps. Registration on; `ExecutionFlags = Client \| Standalone` (single-player, `01b #12`); the group (`LOD`, after `LODCollector`) comes from the engine constructor (`MassVisualizationLODProcessor.cpp:14–15`) |
+| Its `ConfigureQueries`: the tag on `CloseEntityQuery`, `CloseEntityAdjustDistanceQuery`, `FarEntityQuery`, `DebugEntityQuery`; `FilterTag = FSHDemoAgentTag::StaticStruct();` | The engine processor only prepares and count-adjusts LOD settings whose `FilterTag` equals its own (`MassVisualizationLODProcessor.cpp:72, 98`); the director sets the same tag in the trait's LOD parameters (B5). Without matching tags the LOD would never be computed |
+| `class USHVisualizationProcessor : public UMassVisualizationProcessor` | Switches the representation from the LOD: spawns, enables, disables and releases actors, and adds instanced meshes. `bRequiresGameThreadExecution = true` because it touches actors; group and order come from the engine (`MassRepresentationProcessor.cpp:56–57, 523`) |
+| Its `ConfigureQueries`: `EntityQuery.AddTagRequirement<FSHDemoAgentTag>(…)` | The engine's base query, narrowed to the demo (`MassCrowdVisualizationProcessor.cpp:31–35`) |
+| `namespace SHMassProcessors { constexpr int32 ExecutionFlags = … Client \| Standalone; }` | One constant shared by the two processors that set flags, so they can't drift apart. `constexpr`: a compile-time constant, no storage, no initialisation order |
+
+*Not subclassed:* `UMassUpdateISMProcessor`, which writes the instanced-mesh transforms. It is auto-registered and has no tag filter (`MG/MassRepresentation/Private/MassUpdateISMProcessor.cpp:15–36`).
+
+### B5. `SHBenchmarkSubsystem.h` / `.cpp`: the director
+
+**Header.**
+
+| Line | What it does, and why |
+|---|---|
+| `#include "Mass/EntityHandle.h"` | `FMassEntityHandle`, the entity identifier (index + serial number) stored in `Agents`. MassCore since 5.8 |
+| `class USHBenchmarkSubsystem : public UTickableWorldSubsystem` | One director per game world, with the world's lifetime, ticking every frame. Its tick runs as a tickable object after the world's tick groups (`Source/Runtime/Engine/Private/LevelTick.cpp:1821`), so it sees the frame's Mass results. Same design and reasons as UE5-UpdateBudget's director |
+| `virtual void Tick(float DeltaTime) override;` / `GetStatId()` | The two functions a tickable must provide. `GetStatId` names the tick in `stat` profiling |
+| `const TArray<FMassEntityHandle>& GetAgents() const` | Read-only access for the S2 workload subsystem; `Agents[i]` is agent `i` |
+| `DoesSupportWorldType(…)`: Game and PIE | The engine default also includes Editor worlds (`Source/Runtime/Engine/Private/Subsystems/WorldSubsystem.cpp:30–32`); a director spawning thousands of entities in the editor would be a bug |
+| `struct FRunSettings { … }` | The command-line values, read once. Defaults: no agents (an empty map behaves normally), seed 1, warm-up 10 s, capture 60 s, a flip every 4 s, tag "run", don't quit, don't log counts at flips |
+| `enum class ERunPhase : uint8 { Unread, Idle, WarmUp, Capture, Done }` | The run's timeline. `enum class`: scoped names that don't convert to `int` by accident. `uint8`: one byte. `Unread` exists because the settings are read on the first tick (below) |
+| `StartRun`, `BuildEntityConfig`, `SpawnAgents`, `UpdateCamera`, `Teleport`, `LogRepresentationCounts` | One function per job (B5 .cpp). `StartRun` was split out of `Tick` in the S1 simplify pass, so `Tick` reads as the timeline only |
+| `ScheduledFlips`, `Teleports`, `BounceFramesLeft`, `HotSpot` | Flip bookkeeping: scheduled flips done, all camera jumps (bounce returns included), frames until a bounce returns, current hot spot (0 west, 1 east) |
+| `UPROPERTY(Transient) TObjectPtr<UMassEntityConfigAsset> EntityConfig;` | The code-built config. `UPROPERTY` keeps it, and the traits created inside it, alive for the garbage collector: the entity template refers to them. `Transient`: never saved |
+| `UPROPERTY(Transient) TObjectPtr<ACameraActor> Camera;` | The LOD viewer (see `UpdateCamera`) |
+| `TArray<FMassEntityHandle> Agents;` | Plain handles: they stay valid when entities change archetype, unlike fragment pointers (`07`) |
+
+**Source.**
+
+| Code | What it does, and why |
+|---|---|
+| `CSV_DEFINE_CATEGORY(SHBench, true);` | A CSV-profiler category for the run's events, on by default (`Source/Runtime/Core/Public/ProfilingDebugging/CsvProfiler.h:50`) |
+| `namespace SHBench { … }` | Every tuning constant in one place, each with its reason. **Grid:** 4 m spacing, ±1 m jitter, agents at 0.5 m height (4,000 agents fit in a 250 m square). **Camera:** a 15 m orbit, 4 m up, one lap per 20 s, around a hot spot at ±50% of the arena half-width. **Bounces:** every 3rd flip returns after 10 frames, the quick-return case of H1 |
+| `BaseLODDistance`, `VisibleLODDistance`, `LODMaxCount…` | The visualization-LOD settings: distances in cm where each LOD starts, for entities out of and in view, and how many entities each LOD may hold. **S1 starting values**; S3 calibrates them (≥ 20,000 transitions per correctness batch, SC1). The engine defaults allow about 150 actors (`MassRepresentationFragments.h:313`; `MassVisualizationTrait.cpp:46–49`) |
+| `ReadRunSettings()` | `FParse::Value(CommandLine, TEXT("SHAgents="), …)` reads `-SHAgents=N` and leaves the default if absent; `FParse::Param(…, TEXT("SHExit"))` checks a flag. Command-line values, not cvars, so the run script sets everything in one place (the approach UE5-UpdateBudget chose after finding that cheat cvars can't be set from config) |
+| `ValidateRunSettings()` | Returns `false`, with an **error** per problem, for settings that would make a run misleading: a warm-up under 1 s (frame 1 spawns every entity, and that hitch must stay out of the capture), no capture, or a flip period that isn't 0 or between 1 s and the capture length (a bounce must return well before the next flip). It also notes, at Display level, when there is no fixed time step (`FApp::UseFixedTimeStep()`, `Source/Runtime/Core/Public/Misc/App.h:557`), because only then do flips fall on the same frames in every run. **Changed after the S1 code review**, which found that the first version logged the errors and ran anyway |
+| `BuildEntityConfig()`: `NewObject<UMassEntityConfigAsset>(this, TEXT("SHDemoEntityConfig"), RF_Transient)` | A config asset created in code, owned by the subsystem. Its constructor gives it a GUID derived from its path, so the template ID is stable (`MG/MassSpawner/Private/MassEntityConfigAsset.cpp:28–31`) |
+| `Config.AddTrait(*NewObject<USHDemoStateTrait>(EntityConfig));` and the LOD collector trait | Traits are created as subobjects of the config, then added with the **runtime** `FMassEntityConfig::AddTrait` (`MassEntityConfigAsset.cpp:203–206`). The convenient `UMassEntityConfigAsset::AddTrait(TSubclassOf)` is editor-only (inside `#if WITH_EDITOR`, `:241–284`) and would not compile into the game |
+| `UMassMovableVisualizationTrait* Visualization = …` | The 5.8 replacement for the soft-deprecated visualization trait (`MassVisualizationTrait.h:18–19`). `HighResTemplateActor` and `LowResTemplateActor` = `ASHDemoAgent` (B3). The default per-LOD representation is kept: High → high-res actor, Medium → low-res actor, Low → instanced mesh, Off → none (`MassVisualizationTrait.cpp:30–34`) |
+| `LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"))` → `StaticMeshInstanceDesc.Meshes.AddDefaulted_GetRef()` | The instanced-mesh representation: the engine cube at 60% scale. A failed load is logged as an error, because the run would silently lack its ISM representation |
+| The loops over `LODParams` and `LODParams.FilterTag = FSHDemoAgentTag::StaticStruct();` | Apply the `SHBench` distances and caps, and the tag that `USHVisualizationLODProcessor` filters on (B4) |
+| `SpawnAgents()`: `EntityConfig->GetOrCreateEntityTemplate(World)` | Builds the archetype from the traits once (`MassEntityConfigAsset.cpp:66–93`), cached in the spawner's template registry |
+| `TSharedPtr<FMassEntityManager::FEntityCreationContext> Creation = Spawner->SpawnEntities(…)` | Creates all N entities in one batch (`MG/MassSpawner/Public/MassSpawnerSubsystem.h:33`). The returned creation context is **kept** until the fragments are filled, then `Creation.Reset()`: the entities' creation notifications run when the context is released, so they see real transforms instead of zeros. `static_cast<uint32>`: the count parameter is unsigned, and `NumAgents > 0` is already known |
+| The loop: grid column `Index % Side`, row `Index / Side`, jitter from `FRandomStream Random(Settings.Seed)` | Same seed → same positions. `FRandomStream` is a seeded generator independent of the global one, so nothing else in the engine can change the sequence |
+| `GetFragmentDataChecked<FTransformFragment>(Agent).SetTransform(…)`, `…<FSHAgentIdFragment>(…).AgentIndex = Index` | Writes the fragments directly through the entity manager: allowed here because no Mass processing is running in the director's tick. "Checked" = asserts if the fragment is missing, which would be a template bug |
+| `PositionHash = FCrc::TypeCrc32(FVector3f(Position), PositionHash);` | A running CRC of the start positions: the S1 determinism check compares it across runs. `FVector3f` hashes the float values, independent of how doubles print |
+| `UpdateCamera()` | Orbits the current hot spot and looks at its centre. `SetViewTarget(Camera)` every frame: Mass's LOD subsystem takes the viewer from the player controller's view point (`MG/MassLOD/Private/MassLODSubsystem.cpp:376`), so this camera **is** the LOD viewer |
+| `Teleport()` | Jumps to the other hot spot and fires `CSV_EVENT(SHBench, TEXT("BenchFlip"))` (`CsvProfiler.h:56`), so flip windows can be cut from the capture |
+| `LogRepresentationCounts()` | Counts entities per `CurrentRepresentation` and entities holding an actor, by reading each agent's fragments (`GetFragmentDataPtr` returns null if missing). Logged on the last warm-up frame and the frame after `BenchEnd`, both outside the capture, and at each scheduled flip only with `-SHLogCounts` (the frame of the flip: the counts are still the previous frame's). A sanity check, not a metric |
+| `Tick()`, first frame (`Phase == Unread`) → `StartRun()` | Settings are read and the entities spawned on the **first tick**, not in `OnWorldBeginPlay`: by then every subsystem, including Mass's, has had its `OnWorldBeginPlay`, so the order between subsystems can't matter. Invalid settings start no workload, and with `-SHExit` the game exits with code 3 (`FPlatformMisc::RequestExitWithStatus`, `Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMisc.h:1096`), so a run script can never mistake a misconfigured run for a good one. `CSV_METADATA` records the run description, warm-up and capture lengths included, inside the CSV (`CsvProfiler.h:85`) |
+| `Tick()`, `WarmUp` → `Capture` | `BenchStart` fires when the planned time is reached. All times are measured from that **planned** start, so the captured path doesn't depend on the warm-up length. The representation counts are logged on the **last warm-up frame** (`FromBenchStart + DeltaTime >= 0`), which is never captured |
+| `Tick()`, capture | The end check comes **first**: a flip due on the `BenchEnd` frame would have no measured window, so it doesn't happen (found in the S1 code review: with a 60 s capture and 4 s flips, flip 15 used to fire on the `BenchEnd` frame). Then `FlipIndex = Floor(FromBenchStart / FlipEvery)`; when it passes `ScheduledFlips`, one scheduled flip happens; every third one sets `BounceFramesLeft = 10`, and ten frames later the camera jumps back. With a fixed time step the flips fall on the same frames in every run. Counts at flips only with `-SHLogCounts`: walking every agent on a captured frame would inflate exactly the flip windows being measured (also from the code review) |
+| `Tick()`, `Done` | The frame after `BenchEnd` logs the representation counts: outside the capture, because timed runs pass `-csvStopOnEvent=BenchEnd` (`Source/Runtime/Core/Private/ProfilingDebugging/CsvProfiler.cpp:5090`). Three frames after `BenchEnd` (so the CSV file is written), `-SHExit` requests a normal exit once |
+
+### B6. `StateHandoff.Build.cs` (changed in S1)
+
+| Line | What it does, and why |
+|---|---|
+| Public: `MassEntity`, `MassCore`, `MassSpawner`, `MassLOD`, `MassRepresentation` | The rule from A3, applied header by header: `SHDemoTypes.h` includes a MassEntity header; `SHBenchmarkSubsystem.h` a MassCore one; `SHDemoStateTrait.h` the MassSpawner trait base; `SHMassProcessors.h` derives from MassLOD and MassRepresentation processors |
+| Private: `MassActors` | Only `.cpp` files use `FMassActorFragment` |
+| *Not yet:* `StateHandoffCore` | Nothing uses the plugin until the checker (S2) |
+
+### B7. `Config\DefaultGame.ini` (changed in S1)
+
+| Line | What it does, and why |
+|---|---|
+| `[/Script/UnrealEd.ProjectPackagingSettings]` `+DirectoriesToAlwaysCook=(Path="/Engine/BasicShapes")` | The cylinder (B3) and the cube (B5) are referenced only from C++, and no map references them, so the cook would leave them out of the packaged build. The `+` appends to the engine's list instead of replacing it |
+
+### B8. `Tools\run_uncooked.bat` and `Tools\run_packaged.bat`
+
+| Line | What it does, and why |
+|---|---|
+| `if "%SH_LOG%"=="" set "SH_LOG=Run"`; `set "LOG=…\Saved\Logs\%SH_LOG%.log"` | The log name comes from an environment variable. cmd splits `=` inside positional arguments (`%1`), so `-SHAgents=4000` can't follow a name argument; `%*` passes the whole argument string through unchanged. **Caveat (code review):** the variable stays set in the calling shell, so a caller sets it before **every** run, as the queue commands in `09` do |
+| `UnrealEditor-Cmd.exe "%PROJECT%" -game -nullrhi -nosound -unattended -nosplash -traceautostart=0 -log -abslog="%LOG%" %*` | The uncooked game, without rendering, until the game quits itself (`-SHExit`). For functional checks only: the editor binary and `-nullrhi` are never benchmark conditions |
+
+**`Tools\run_packaged.bat`** is the same for the packaged build: it starts the real executable `Build\Windows\StateHandoff\Binaries\Win64\StateHandoff.exe` (so the exit code is the game's), refuses with exit code 2 if packaging hasn't run, and passes every argument through (`-nullrhi` is given by the caller when wanted). It is for functional checks; timed runs go through `run_bench.py`, pinned to the performance cores (S2).

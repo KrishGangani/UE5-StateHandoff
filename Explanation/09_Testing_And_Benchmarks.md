@@ -40,8 +40,44 @@ python -I -u ue_queue.py run --project P09 --label "P09 Phase 4: …" --timeout 
 | T-2 | `pin_self` pins the script, and a child inherits the mask | `pin_self(performance_core_mask())`, then `applied_mask()`, then a child PowerShell printing its own `ProcessorAffinity` | ✅ before `0xFFFFFF (all logical processors)`; after `0xFFFF (performance cores only)`; child `65535` (= `0xFFFF`), 2026-11-21 |
 | T-3 | Links stay inside the project folder | `python -I tools\check_links.py P09_StateHandoff` (portfolio root) | ✅ 0 problems before each commit (the count is in the commit's audit) |
 
+## Step S1 · Workload skeleton checks (2026-11-21)
+
+**Job 1** `20261121_030815_421625` (43.5 s): editor build, then three uncooked runs (`Tools\run_uncooked.bat`, editor binary, `-game -nullrhi`) with `-SHAgents=4000 -SHWarmup=2 -SHCapture=16 -SHFlipEvery=4 -SHExit -deterministic -FPS=60`, seeds 7, 7 and 8. These are **functional checks, not measurements**.
+
+| # | Check | Result |
+|---|---|---|
+| S1-a | **Build** | ⚠ `Result: Succeeded`, but **4 × warning C4996**: `MassEntityElementTypes.h` "has moved to the MassCore module and been renamed to Mass/EntityElementTypes.h" (`Source/Runtime/MassEntity/Public/MassEntityElementTypes.h:5–6`). Fixed (`05` B1); the warning-free build is S1-f |
+| S1-b | **Determinism of placement** | ✅ Seed 7 gave start-position hash `0x0B07F62C` in both runs; seed 8 gave `0x776DED0C` |
+| S1-c | **Representation switching happens** | ✅ At every flip, about 100 high-res actors, about 290 low-res actors, 900–1,080 instanced cubes, about 2,550–2,700 entities with no representation (N = 4,000). The counts change at every flip |
+| S1-d | **Kept-disabled actors exist (the H2 premise, `01b #5`)** | ✅ More entities **hold an actor** (451–565) than are **in an actor representation** (about 390): for example 565 vs 394 at flip 3. The difference is entities on an instanced cube or none whose actor the engine keeps, disabled |
+| S1-e | **Repeatability of the representation sequence** | ✅ The two seed-7 runs logged identical counts at every flip. (On this machine, in these short uncooked runs; the wall-clock spawn and destroy budgets, `01b #8`, can still make runs differ, so the checker never relies on it) |
+| S1-g | **Timeline** | ✅ `BenchStart` at 2.017 s, `BenchEnd` after 16.000 s of capture; 4 scheduled flips and 5 camera jumps (flip 3 is a bounce); exit code 0 |
+| S1-h | **Errors** | ✅ 0 errors. 21 warnings per run, **all** `LogEditorDataStorageUI` (the editor binary in `-game`, as in Phase 4 F-3); none from Mass or this project |
+
+**Audit trail for S1:**
+- `code-review` (medium, Skill tool, on the staged diff): **10 findings, 3 important and 7 nits, no Mass API misuse** (the review checked processor subclassing, `FilterTag`, which trait adds which fragment, `FMassEntityConfig::AddTrait`, `SpawnEntities` and the CSV start/stop events against the engine source). Fixed:
+  1. *important:* representation counts walked every agent on captured flip frames, inflating the flip windows → logged only outside the capture, or with `-SHLogCounts`;
+  2. *important:* with capture a multiple of the flip period, a flip fired on the `BenchEnd` frame → the end check comes first;
+  3. *important:* the docs claimed repeatable flip frames without saying a fixed step is required → comments and `05` corrected; a Display note when there is no fixed step;
+  4. invalid settings were logged and the run continued → no workload, exit code 3 with `-SHExit`;
+  5. warm-up 0 put the spawn frame inside the capture → warm-up ≥ 1 s;
+  6. a bounce could cancel the next flip at very short periods → flip period 0 or ≥ 1 s;
+  7. the header said the camera flips during warm-up → corrected;
+  8. warm-up and capture lengths were missing from the CSV metadata → added;
+  9. the exit-delay comment didn't say `-csvStopOnEvent=BenchEnd` is what ends the capture → corrected;
+  10. `SH_LOG` stays set in the caller → documented in the scripts and `05` B8 (callers set it before every run).
+- `simplify`: the skill launches four parallel sub-agents, which this project's brief doesn't allow, so its four angles (reuse, simplification, efficiency, altitude) were applied by hand to the same diff. One change: the first-frame block of `Tick` became `StartRun()`. Reviewed and not changed: the grid and CRC code that mirrors UE5-UpdateBudget (copied, not shared, because each repository stands alone); entity-manager lookups at spawn (once, outside the capture).
+
+**Job 2** (verification after the fixes): editor and game builds, Development package, one packaged run. See the table below.
+
+| # | Check | Result |
+|---|---|---|
+| S1-f | Editor and game builds after the fixes: 0 errors, 0 warnings | ✅ Job `20261121_032455_ee5079` (95.3 s): editor `Result: Succeeded` (11.9 s, 7 actions), game `Result: Succeeded` (19.2 s, 9 actions, monolithic `StateHandoff.exe`); **0 errors, 0 warnings**: the C4996 warning of S1-a is gone |
+| S1-i | Package Development: the cook includes `/Engine/BasicShapes` | ✅ `BUILD SUCCESSFUL` (60.1 s); 519 packages cooked (Phase 4: 516; the extra three are the basic shapes), cook "Success - 0 error(s), 0 warning(s)" |
+| S1-j | Packaged run (`-nullrhi`, N = 1,000, seed 7, 6 s capture, flips every 2 s): spawns, switches representations, no missing-asset warnings, exit 0 | ✅ Exit 0. Hash `0x1D1A1588`. End of warm-up: 104 high-res + 252 low-res actors, 562 cubes, 82 none, 387 entities holding an actor; at `BenchEnd`: 363 actors, 495 cubes, 142 none, 591 holding an actor. **2 scheduled flips** in the 6 s capture: the flip due at 6 s, on the `BenchEnd` frame, is skipped (the code-review fix). **0 `Warning:` and 0 `Error:` lines**; the only "Failed to load" lines are the engine probing for optional profiler DLLs at Display level |
+
 ---
 
-## Phase 5–8
+## Benchmark batches
 
 *(pending)*. The first batch is the S3 baseline capture, recorded here with its batch name, as in [Benchmarks/README.md](../Benchmarks/README.md).

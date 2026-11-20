@@ -9,7 +9,12 @@ public class StateHandoff : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Phase 4: only the engine basics. Mass and StateHandoffCore are added in S1, when the first code uses them.
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+		// Public: the module's public headers derive from or include these modules' types
+		// (fragments and tags: MassEntity; entity handles: MassCore; traits: MassSpawner; processors: MassLOD, MassRepresentation).
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine",
+			"MassEntity", "MassCore", "MassSpawner", "MassLOD", "MassRepresentation" });
+
+		// Private: only .cpp files use them (FMassActorFragment). StateHandoffCore is added in S2 with the checker.
+		PrivateDependencyModuleNames.AddRange(new string[] { "MassActors" });
 	}
 }

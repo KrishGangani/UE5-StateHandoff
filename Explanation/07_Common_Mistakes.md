@@ -16,6 +16,21 @@
 | No `DefaultInput.ini` | A start-up warning "does not have a valid PlayerInput object" from Enhanced Input | The two keys from Epic's template (`05` A10) | Grep the smoke log for `LogEnhancedInput` |
 | Starting the packaged **bootstrap** exe (or `cmd /c start /wait`) in a timed run | Exit code 0 even when the game failed | Start `Build\Windows\StateHandoff\Binaries\Win64\StateHandoff.exe` directly (`05` A11–A12) | Compare the exit code with the log's last lines |
 
+## Game module: workload (S1)
+
+| Mistake | How to spot it | How to prevent it | How to debug it |
+|---|---|---|---|
+| ⚠ caught: including a Mass header that 5.8 moved (`MassEntityElementTypes.h` → MassCore's `Mass/EntityElementTypes.h`) | Build warning C4996 "has moved to the MassCore module" (`MassEntityElementTypes.h:5–6`) | Include the MassCore header and depend on MassCore; read every warning, don't silence it | The warning names the new header |
+| Not registering the visualization, visualization-LOD or LOD-collector processor | Entities exist but never get actors or instanced meshes; or the LOD collector trait logs "Using … trait while the required processor … is not enabled by default" (`MassLODTrait.cpp:64`) | Subclass all three with `bAutoRegisterWithProcessingPhases = true` (`05` B4) | The director's representation counts stay at `none` for every entity |
+| A `FilterTag` on the LOD processor that differs from the trait's `LODParams.FilterTag` | The LOD is never computed: every entity stays at its initial LOD | Set both to the demo tag, together (`05` B4, B5) | Compare the two tags; `MassVisualizationLODProcessor.cpp:72, 98` is the comparison |
+| A required fragment no trait adds (transform, actor fragment) | Template validation errors at spawn | The demo trait adds both (`05` B2) | The error names the missing type |
+| Calling the editor-only `UMassEntityConfigAsset::AddTrait(TSubclassOf)` | Compiles in the editor target, fails in the game target | Use `FMassEntityConfig::AddTrait(Trait&)` on `NewObject`-made traits | Build the game target, not only the editor |
+| Letting the code-built config be garbage-collected | Crash or invalid template after the next GC | Keep it in a `UPROPERTY` (`05` B5) | `obj refs` on the config; force a GC with `obj gc` |
+| Releasing the spawn's creation context before filling the fragments | Creation notifications see default transforms | Hold the returned context until the fragments are written | Log the first frame's representation and positions |
+| Spawning in `OnWorldBeginPlay` and depending on the Mass subsystems' own `OnWorldBeginPlay` having run | Works or fails depending on subsystem order | Spawn on the director's first tick | — |
+| Assuming the default `LODMaxCount` | Only about 150 actors ever exist | Set the counts explicitly; calibrate (S3) | The representation counts in the log |
+| A mesh referenced only from C++ | Invisible actors or cubes in the packaged build, a load warning in its log | `DirectoriesToAlwaysCook` (`05` B7) | Grep the packaged log for the asset path |
+
 ## Mass representation hazards (from Phase 2, to be turned into tests)
 
 | Mistake | How to spot it | How to prevent it | How to debug it |
