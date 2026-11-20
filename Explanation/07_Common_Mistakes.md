@@ -31,6 +31,18 @@
 | Assuming the default `LODMaxCount` | Only about 150 actors ever exist | Set the counts explicitly; calibrate (S3) | The representation counts in the log |
 | A mesh referenced only from C++ | Invisible actors or cubes in the packaged build, a load warning in its log | `DirectoriesToAlwaysCook` (`05` B7) | Grep the packaged log for the asset path |
 
+## StateHandoffCore and demo state: the instrument (S2a)
+
+| Mistake | How to spot it | How to prevent it | How to debug it |
+|---|---|---|---|
+| Comparing two copies by value only, or with a tolerance | A lost write followed by a write that restores the value goes unseen | Compare the **version** first; values only when versions are equal (`05` C3) | The `Lost` test: a copy that missed one write |
+| A channel member without `UPROPERTY` | `CompareScriptStruct` and `CopyScriptStruct` ignore it: corruption there is invisible, and a hand-off doesn't copy it | Every channel member is a `UPROPERTY` | Review each channel struct; a test that changes only that member must say `Corrupted` |
+| Bumping the version outside the one write function, or forgetting it | False `Lost` or `Duplicated` everywhere | All writes go through `SHDemo::ApplyWrite`; "no change" writes nothing | The tests check versions after every write |
+| Deciding an event separately for each copy (oracle and live) | The copies diverge by design, because each decides from its own state | Decide **once**, on the oracle; apply the same write to both copies | The `CopiesAgree` test |
+| Using `FMath::Rand` or an engine hash for events | The event sequence changes with other code's random calls or an engine version, so configurations see different events | The project's own hash of (seed, frame, point, agent) | The `EventsDeterministic` test |
+| Storing "seconds remaining" for a cooldown | A dormant agent's cooldown stops counting, so it differs by representation | Absolute "ready at" world times (`05` C5) | Compare a cooldown before and after a long dormant period |
+| `TestEqual` on an enum class | Compile error (no overload) | Compare as integers | — |
+
 ## Mass representation hazards (from Phase 2, to be turned into tests)
 
 | Mistake | How to spot it | How to prevent it | How to debug it |

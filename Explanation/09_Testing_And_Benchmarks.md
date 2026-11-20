@@ -76,6 +76,34 @@ python -I -u ue_queue.py run --project P09 --label "P09 Phase 4: …" --timeout 
 | S1-i | Package Development: the cook includes `/Engine/BasicShapes` | ✅ `BUILD SUCCESSFUL` (60.1 s); 519 packages cooked (Phase 4: 516; the extra three are the basic shapes), cook "Success - 0 error(s), 0 warning(s)" |
 | S1-j | Packaged run (`-nullrhi`, N = 1,000, seed 7, 6 s capture, flips every 2 s): spawns, switches representations, no missing-asset warnings, exit 0 | ✅ Exit 0. Hash `0x1D1A1588`. End of warm-up: 104 high-res + 252 low-res actors, 562 cubes, 82 none, 387 entities holding an actor; at `BenchEnd`: 363 actors, 495 cubes, 142 none, 591 holding an actor. **2 scheduled flips** in the 6 s capture: the flip due at 6 s, on the `BenchEnd` frame, is skipped (the code-review fix). **0 `Warning:` and 0 `Error:` lines**; the only "Failed to load" lines are the engine probing for optional profiler DLLs at Display level |
 
+## Step S2a · The instrument as plain C++ (2026-11-21)
+
+**Job 1** `20261121_035727_39b841` (50.5 s): editor build, game build, then `Tools\run_tests.bat StateHandoff` (headless editor, `Automation RunTests StateHandoff`).
+
+| # | Check | Result |
+|---|---|---|
+| S2a-a | **Editor build** | ✅ `Result: Succeeded` (16.5 s, 17 actions: the plugin's first code, the game module); **0 errors, 0 warnings** |
+| S2a-b | **Game build** | ✅ `Result: Succeeded` (17.6 s, 13 actions, monolithic `StateHandoff.exe`); **0 errors, 0 warnings** |
+| S2a-c | **Automation tests** | ✅ "Found 10 automation tests based on 'StateHandoff'": `StateHandoff.Checker.{Corrupted, Counts, Duplicated, Identical, Lost}` and `StateHandoff.Demo.{Cooldown, CopiesAgree, EventsDeterministic, Health, Reservation}`, every one `Result={Success}`; "TEST COMPLETE. EXIT CODE: 0". `Tests.log`: 0 `Warning:` and 0 `Error:` lines |
+
+**Audit trail for S2a:**
+- `code-review` (medium, Skill tool, on the staged diff): **7 findings, all nits**, none blocking; the reviewer also checked the MassCore include, the test runner's exit code on failure, the build rules and the event-rate edge cases against the engine source. All fixed:
+  1. `Record` and `GetCount` would index one past the end with `ESHDivergence::Count` → a `check` in both;
+  2. the checker's comment and `05` C3 said floats compare "bit for bit"; numeric properties compare with `==` (`UnrealType.h:1760–1769`: +0 equals −0, NaN never equals itself) → comment and docs corrected;
+  3. `ESHChannel::Count` is mapped to Reservation in Shipping, where the `check` is compiled out → documented in `05` C5 (every caller filters it; this project never builds Shipping);
+  4. the test struct `FSHTestChannel` is reflected in every build, not only with tests → accepted and stated in `05` C4;
+  5. `04` §14 named "transition helpers" that S2a doesn't have → removed (S2b adds them);
+  6. `05` C8 and `06` §17 said `Automation RunTests` matches a prefix; a plain filter is a **substring** match (`AutomationCommandline.cpp:211–227`, `AutomationControllerSettings.h:52–74`) → docs corrected; the default filter still finds exactly this project's 10 tests (S2a-c);
+  7. two different line ranges cited for the automation-flags rule → `AutomationTest.h:4126–4133` everywhere (application flag at 4126, one filter at 4127–4133).
+- `simplify`: applied by hand (the skill starts sub-agents, which this project's brief doesn't allow), on the same diff, for reuse, simplification, efficiency and altitude. **No change.** Reviewed: the four `switch`es over `ESHChannel` (kept: each maps the enum to a different kind of thing, and a table would hide the `check`); the per-property comparison (about 16,000 reflection compares per frame at N = 4,000 when the checker is on: acceptable, because correctness runs and timing runs are separate batches, `Benchmarks/README.md` rule 6); the checker in the plugin and the demo rules in the game (the right altitude: the checker knows nothing about the demo).
+- `02` updated in the same step: the demo-state row and §14 record that an event is decided once (on the oracle) and its write applied to each copy.
+
+**Job 2** (verification after the review fixes): editor and game builds, the automation tests.
+
+| # | Check | Result |
+|---|---|---|
+| S2a-d | Both builds after the fixes: 0 errors, 0 warnings; the 10 tests pass | ✅ Job `20261121_042452_b8c1e9` (47.9 s): editor `Result: Succeeded` (11.3 s, 8 actions), game `Result: Succeeded` (17.1 s, 5 actions); **0 errors, 0 warnings**. "Found 10 automation tests based on 'StateHandoff'", 10 × `Result={Success}`, "TEST COMPLETE. EXIT CODE: 0"; `Tests.log`: 0 `Warning:`, 0 `Error:` |
+
 ---
 
 ## Benchmark batches

@@ -6,6 +6,7 @@
 |---|---|---|
 | A | Phase 4, F1–F4 (foundation) | `.uproject`, two `Target.cs`, two `Build.cs`, two module `.cpp`, `.uplugin`, three config `.ini`, `Tools\*.bat`, `Tools\cpu_affinity.py` |
 | B | S1 (workload skeleton: Mass only) | `SHDemoTypes.h`, `SHDemoStateTrait`, `SHDemoAgent`, `SHMassProcessors`, `SHBenchmarkSubsystem`; `Build.cs` and `DefaultGame.ini` changes; `Tools\run_uncooked.bat`, `run_packaged.bat` |
+| C | S2a (the instrument, as plain C++) | Plugin `SHContractTypes.h`, `SHInvariantChecker`, tests; game `SHDemoState`, tests; both `Build.cs` changes; `Tools\run_tests.bat` |
 
 ---
 
@@ -151,7 +152,7 @@ public class StateHandoffCore : ModuleRules
 | Header comment | "It must not depend on any game module": the plugin is the reusable half and must build in any project |
 | `class StateHandoffCore : ModuleRules` | Class name = module name |
 | `PCHUsage = UseExplicitOrSharedPCHs` | As in A3 |
-| `Core, CoreUObject, Engine` (public) | The plugin's public headers will expose engine and Mass types (a trait, a subsystem, a processor), so its dependencies are public. The comment lists the Mass modules that arrive later and when (`02` §3) |
+| `Core, CoreUObject, Engine` (public) | The plugin's public headers will expose engine and Mass types (a trait, a subsystem, a processor), so its dependencies are public. The comment lists the Mass modules that arrive later and when (`02` §3). **S2a** added `MassCore` (see C7) |
 
 ### A7. `Plugins\…\Private\StateHandoffCoreModule.cpp`
 
@@ -368,3 +369,92 @@ The engine ships the LOD collector, visualization-LOD and visualization processo
 | `UnrealEditor-Cmd.exe "%PROJECT%" -game -nullrhi -nosound -unattended -nosplash -traceautostart=0 -log -abslog="%LOG%" %*` | The uncooked game, without rendering, until the game quits itself (`-SHExit`). For functional checks only: the editor binary and `-nullrhi` are never benchmark conditions |
 
 **`Tools\run_packaged.bat`** is the same for the packaged build: it starts the real executable `Build\Windows\StateHandoff\Binaries\Win64\StateHandoff.exe` (so the exit code is the game's), refuses with exit code 2 if packaging hasn't run, and passes every argument through (`-nullrhi` is given by the caller when wanted). It is for functional checks; timed runs go through `run_bench.py`, pinned to the performance cores (S2).
+
+---
+
+## Part C · S2a: the instrument, as plain C++
+
+S2a builds the measuring instrument before anything it measures: the contract's base type, the checker that classifies a difference, and the demo's state, events and rules, all testable without a world. Nothing runs in the game yet (S2b wires it in).
+
+### C1. Plugin `Public\SHContractTypes.h`: the contract's vocabulary
+
+| Line | What it does, and why |
+|---|---|
+| `#include "Mass/EntityElementTypes.h"` | `FMassFragment`, from MassCore (`05` B1) |
+| `USTRUCT() struct FSHChannelFragment : public FMassFragment` | The base of every **state channel**. Deriving from `FMassFragment` lets the same struct type be stored as an entity fragment; S4 also stores it as a component property. One type, two homes (`02` §4.1) |
+| `UPROPERTY() uint32 Version = 0;` | Bumped by every write (`SHDemo::ApplyWrite`, C5). It turns "are these copies the same?" into three precise answers: version behind = **lost** writes, ahead = **duplicated**, equal but different = **corrupted**. `uint32`: 4 billion writes per copy is more than any run; it can't go negative. `UPROPERTY` so `CompareScriptStruct` and `CopyScriptStruct` (C3) include it |
+| `UENUM() enum class ESHDivergence : uint8 { None, Lost, Duplicated, Corrupted, Count UMETA(Hidden) }` | The checker's classes. `UENUM` makes them reflected (printable by name in debuggers and Blueprint if ever needed); `Count` is the number of values, used to size arrays, and `UMETA(Hidden)` keeps it out of editor lists |
+
+### C2. Plugin `Public\SHInvariantChecker.h`
+
+| Line | What it does, and why |
+|---|---|
+| `#define UE_API STATEHANDOFFCORE_API` … `#undef UE_API` | 5.8's export pattern, as the Mass headers use (`MG/MassRepresentation/Public/MassRepresentationActorManagement.h:7, 140`): `STATEHANDOFFCORE_API` makes a function visible from other modules (the game module calls `Classify`). Defining a short local name and undefining it at the end keeps the macro from leaking into other headers |
+| `class FSHInvariantChecker` | Plain C++, no `UObject`: no reflection or garbage collection needed, and the tests can create one on the stack |
+| `static UE_API ESHDivergence Classify(const UScriptStruct& Type, const FSHChannelFragment& Expected, const FSHChannelFragment& Observed);` | `static`: classification needs no state. The caller passes the channel's reflected type, because the two references only show the base; the type lets the comparison see every property of the real struct. References, not pointers: both copies must exist |
+| `void Record(const ESHDivergence Result) { check(Result < ESHDivergence::Count); ++Counts[…]; }` | Counts one comparison, `None` included, so the number of comparisons is known too. Inline in the header: called for every agent and channel every frame (about 16,000 times a frame at N = 4,000), so it must be inlinable. The `check` stops a `Count` value from writing one past the end of the array (code review) |
+| `int64 GetCount(…) const` (same `check`), `UE_API int64 GetIncidents() const`, `UE_API void Reset()` | Read the counts; incidents = every class except `None`. `int64`: a long run makes millions of comparisons |
+| `int64 Counts[static_cast<int32>(ESHDivergence::Count)] = {};` | One counter per class, zero-initialised (`= {}`) |
+
+### C3. Plugin `Private\SHInvariantChecker.cpp`
+
+| Code | What it does, and why |
+|---|---|
+| `checkf(Type.IsChildOf(FSHChannelFragment::StaticStruct()), …)` | A wrong type would make the property comparison read past the end of the structs. `checkf` stops at once with a message in development builds (it is compiled out of Shipping) |
+| `if (Observed.Version < Expected.Version) return Lost;` / `> … return Duplicated;` | The version decides first: it is the history of writes, so a copy that missed a write is "lost" even if later writes happen to make its values match again |
+| `return Type.CompareScriptStruct(&Expected, &Observed, PPF_None) ? None : Corrupted;` | Same number of writes: every property must be equal (`Source/Runtime/CoreUObject/Public/UObject/Class.h:2481`). The comparison is exact: each numeric property compares with `==` (`Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1760–1769`), so +0 equals −0 and a NaN never equals itself. That is right here: both copies ran the same writes in the same order, so a correct copy has the same values, and the demo's arithmetic (clamped adds and subtracts) never makes a NaN. (The first version of this text said "bit for bit"; corrected after the code review.) Taking the address of the base reference is the struct's address, because `FSHChannelFragment` is the first and only base of every channel (its base `FMassFragment` is empty) |
+| `GetIncidents()` loops from `None + 1` to `Count`; `Reset()` zeroes every counter | Written out, so a new class added to the enum is included automatically |
+
+### C4. Plugin `Private\Tests\SHTestTypes.h` and `SHInvariantCheckerTests.cpp`
+
+| Code | What it does, and why |
+|---|---|
+| `USTRUCT() struct FSHTestChannel : public FSHChannelFragment { float Value = 100.f; int32 Slot = INDEX_NONE; }` | A channel shaped like the demo's (a float and an integer), so both property comparisons are exercised. In `Private\Tests`, so it is not part of the plugin's public API. The tests are compiled only with `WITH_DEV_AUTOMATION_TESTS`, but the struct itself is reflected in every build of the plugin (a small type, never instantiated outside the tests): accepted, and stated here after the code review |
+| `#if WITH_DEV_AUTOMATION_TESTS` … `#endif` | Tests compile only in builds that support automation tests (Development editor and game, not Shipping) |
+| `constexpr EAutomationTestFlags Flags = EditorContext \| ClientContext \| ProductFilter;` | Where the tests may run (editor and game) and exactly one filter, which the macro requires at compile time (`Source/Runtime/Core/Public/Misc/AutomationTest.h:4126–4133`) |
+| `Write(Channel, Delta)`, `Classify(…)` returning `int32`, `AsInt(…)` | Helpers: one write the way the demo writes (value, then version); the classification as an integer, because `TestEqual` has no overload for an enum class (`AutomationTest.h:1985–2003`) |
+| `IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHCheckerIdenticalTest, "StateHandoff.Checker.Identical", Flags)` and the four others | Each macro declares a test class and registers it under that name; `RunTest` returns `true` and reports failures through `TestEqual`/`TestTrue`. The cases: **Identical** (two defaults; the same ten writes give bit-identical floats); **Lost** (one write missing; a reset to defaults); **Duplicated** (one write too many); **Corrupted** (a different float, a different integer, same version); **Counts** (per class, incidents exclude `None`, `Reset`) |
+| `const FSHTestChannel Defaults{};` | `{}` value-initialises the const object: a `const` object needs an initialiser |
+
+### C5. Game `Public\SHDemoState.h` / `Private\SHDemoState.cpp`: the demo's state and rules
+
+| Code | What it does, and why |
+|---|---|
+| `FSHHealthState { float Current = 100.f; float Max = 100.f; }` | Health, as an attribute set would hold it |
+| `FSHCooldownState { double ReadyAtA, ReadyAtB; int32 Uses; }` | Two cooldowns as **absolute world times**, not "seconds left": an absolute time needs no simulation while the agent is dormant, so it is right in every representation. `double` because world time is `double` in UE 5. `Uses` records the decision outcome (each successful use) |
+| `FSHMemoryState { FVector LastSeenPosition; double LastSeenTime = -1.0; uint8 Alert = 0; }` | What the AI remembers about the player. `-1` = never seen. `uint8` because the alert level is 0–3 |
+| `FSHReservationState { int32 Slot = INDEX_NONE; }` | The interaction slot the agent believes it holds. The registry (below) holds the other side, so their agreement can be checked |
+| `enum class ESHChannel : uint8 { Health, Cooldown, Memory, Reservation, Count }` | The channels as an index (arrays of checkers, names, CSV columns). Plain C++ enum: never needs reflection |
+| `struct FSHAgentState { …four channels…; Get(ESHChannel) }` | One agent's expected state for the oracle. The non-const `Get` calls the const one and removes `const` with `const_cast`, the standard way to write the logic once for both |
+| `ESHEventType { Damage, Heal, UseAbility, Perceive, Claim, Release }`, `ESHEventPoint { Simulation, Actor }`, `FSHEvent` | What happens to an agent, and where in the frame (`01` §6.1). An event carries every parameter any type needs; each type reads only its own |
+| `struct FSHWrite` | The **decided** effect of an event on one channel: what both copies must apply. `Channel == Count` means "no change" (an ability not ready, nothing to release, no free slot), so no version is bumped |
+| `class FSHSlotRegistry` | The shared slots, one holder per slot. `TakeFree(Start, Agent)` scans from `Start`, wrapping, for the first free slot; `Free(Slot, Agent)` frees only if `Agent` is the holder, so a stale release can't steal someone else's slot. World-level state: it never changes representation |
+| `ESHChannel::Count` in `Get`, `GetChannelStruct` | "No channel" is never a valid argument: every caller filters it first (a write with `Channel == Count` is never applied, and loops stop before `Count`). The `check` in the `default:` branch catches a caller that forgets, in development builds; it is compiled out of Shipping, which this project never builds |
+| `SHDemo::CooldownA = 2.0`, `CooldownB = 5.0`, `MaxAlert = 3` | The rules' constants, in one place |
+| `Mix(uint32)` in an anonymous namespace | MurmurHash3's 32-bit finaliser (shifts and two multiplications), written out so the event sequence can't change with an engine version. The anonymous namespace makes it private to this file |
+| `MakeEvent(Seed, Frame, Point, Agent, Rate, OutEvent)` | **Deterministic**: the event is a function of its arguments only, so every configuration sees exactly the same events. One chained hash decides "event or not" (its low 16 bits against `Rate × 65,536`) and the type; a second hash of the first gives the parameters, so type and amount aren't correlated |
+| `Decide(Expected, Event, Agent, Now, Registry)` | Turns an event into a write, **using the oracle's state**: damage and heal always write; an ability writes only if `Now >= ReadyAt`; a claim only if the agent holds nothing and a slot is free (the registry is updated here, once); a release only if the agent holds a slot. Deciding once and applying the same write to both copies means a correct hand-off gives bit-identical copies, and a wrong one shows as a version or value difference |
+| `ApplyWrite(Copy, Write)` | Applies one write to one copy and bumps its version: damage subtracts and clamps at 0, heal adds and clamps at `Max`, an ability sets `ReadyAt = Time + cooldown` and counts a use, perceive sets position, time and alert (capped), a reservation sets the slot. `static_cast<FSHHealthState&>(Copy)` turns the base reference back into the real type; safe because the write's channel says which type it is. `default: return;` = no version bump for "no change" |
+
+### C6. Game `Private\Tests\SHDemoStateTests.cpp`
+
+| Test | What it proves |
+|---|---|
+| `StateHandoff.Demo.EventsDeterministic` | 40,000 draws twice give identical events; the rate lands near 5% (bounds 4–6%, a wiring check, not a statistics test); rate 0 never fires, rate 1 always does |
+| `…Health` | Damage, clamp at 0, heal, clamp at max; one version per write |
+| `…Cooldown` | First use succeeds and sets `ReadyAt`; a second use too early writes nothing; the two abilities are independent; uses and versions count only successful writes |
+| `…Reservation` | Claim takes the slot at the salt; a second claim while holding does nothing; release clears both sides; release with nothing held does nothing; a full registry refuses; only the holder can free a slot |
+| `…CopiesAgree` | 2,000 frames of events decided once and applied to two copies: the checker finds them identical; a third copy that stops receiving writes half-way is `Lost` on every channel. This is the instrument's end-to-end property, without a world |
+
+### C7. Build rules (changed in S2a)
+
+| File | Change, and why |
+|---|---|
+| `StateHandoffCore.Build.cs` | Public `MassCore`: `SHContractTypes.h` (public) derives from MassCore's `FMassFragment`. The other Mass modules come with the first code that uses them (S4–S6) |
+| `StateHandoff.Build.cs` | Public `StateHandoffCore`: `SHDemoState.h` (public) derives from the plugin's `FSHChannelFragment` |
+
+### C8. `Tools\run_tests.bat`
+
+| Line | What it does, and why |
+|---|---|
+| `UnrealEditor-Cmd.exe "%PROJECT%" -ExecCmds="Automation RunTests %FILTER%;Quit" -unattended -nullrhi -nosound -nosplash -nopause -log -abslog="%LOG%" -ReportExportPath="%REPORT%"` | Runs every test whose full name **contains** the filter (default `StateHandoff`; a plain argument is a substring match, and only a leading `^` or trailing `$` anchors it: `Source/Developer/AutomationController/Private/AutomationCommandline.cpp:211–227`, `Source/Developer/AutomationController/Public/AutomationControllerSettings.h:52–74`), headless, then quits. The default finds exactly this project's tests (`09`, S2a). A failing test sets `GIsCriticalError`, and the editor exits with −1 (`Source/Developer/AutomationController/Private/AutomationCommandline.cpp:493–504`), so the queue job fails visibly. The report goes to `Saved\Automation\Reports` (git-ignored) |

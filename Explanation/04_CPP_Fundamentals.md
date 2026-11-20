@@ -1,6 +1,6 @@
 # 04 · C++ Fundamentals: StateHandoff
 
-**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1.
+**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1; sections 12–16 in S2a.
 
 ---
 
@@ -107,3 +107,47 @@ UMesh* Get() { static UMesh* Cached = Find(); return Cached; }   // Find() runs 
 ```
 - A `static` local is initialised once, the first time the line runs, and kept afterwards.
 - **In our code:** `static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(…)` in the agent's constructor: the asset lookup runs once per class, not once per spawned actor.
+
+## 12. Downcasting a reference with `static_cast`
+
+```cpp
+struct FBase { int Version = 0; };
+struct FHealth : FBase { float Current = 100.f; };
+void Apply(FBase& Any) { FHealth& H = static_cast<FHealth&>(Any); H.Current -= 1.f; }   // only if Any IS an FHealth
+```
+- Turning a base reference back into the derived type is allowed with `static_cast` when you **know** the real type; nothing checks it at run time.
+- **In our code:** `SHDemo::ApplyWrite` casts the channel copy to the type its write names (`FSHWrite::Channel`), so the knowledge travels with the data.
+
+## 13. Writing logic once for `const` and non-`const` (`const_cast`)
+
+```cpp
+const FBase& Get(int I) const { /* the real logic */ }
+FBase& Get(int I) { return const_cast<FBase&>(static_cast<const ThisType&>(*this).Get(I)); }
+```
+- The non-const version calls the const one, then removes `const` from the result. Safe because the object itself is not const.
+- **In our code:** `FSHAgentState::Get`.
+
+## 14. Anonymous namespaces and file-private helpers
+
+```cpp
+namespace { uint32 Mix(uint32 H) { /* … */ return H; } }   // visible in this .cpp only
+```
+- Names in an anonymous namespace have internal linkage: no other file can see or clash with them.
+- **In our code:** `SHDemo::Mix` (the event hash).
+
+## 15. Unsigned arithmetic for hashes
+
+```cpp
+uint32 H = 0xFFFFFFFFu; H *= 3u;   // wraps around modulo 2^32: defined behaviour for unsigned types
+```
+- Unsigned overflow wraps, which is exactly what a hash wants; signed overflow is undefined behaviour, so hashes use `uint32`.
+- `% Count` maps a hash to a range; `(Hash & 0xFFFF) < Threshold` turns its low 16 bits into a probability.
+- **In our code:** `SHDemo::MakeEvent`, `FSHSlotRegistry::TakeFree`.
+
+## 16. Value-initialising a `const` object
+
+```cpp
+const FSHTestChannel Defaults{};   // every member gets its default member initialiser
+```
+- A `const` object must be initialised; `{}` does it explicitly, with the defaults written in the struct.
+- **In our code:** the checker tests.

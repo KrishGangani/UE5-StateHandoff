@@ -9,8 +9,8 @@ public class StateHandoffCore : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Phase 4: only the engine basics. The Mass modules (MassEntity, MassCore, MassActors, MassRepresentation,
-		// MassSpawner) are added in S2/S5, together with the first code that includes their headers.
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+		// Public: SHContractTypes.h (a public header) derives from MassCore's FMassFragment. The other Mass modules
+		// (MassEntity, MassSpawner, MassActors, MassRepresentation) are added in S4-S6, with the first code that uses them.
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "MassCore" });
 	}
 }

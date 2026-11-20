@@ -21,8 +21,12 @@
 | 12 | CSV profiler macros | S1 |
 | 13 | `CreateDefaultSubobject`, `ConstructorHelpers::FObjectFinder`, `LoadObject`, `NewObject` | S1 |
 | 14 | `FParse`, `FRandomStream`, `FCrc` | S1 |
+| 15 | `UENUM`, `UMETA` | S2a |
+| 16 | `UScriptStruct::CompareScriptStruct`, `CopyScriptStruct` | S2a |
+| 17 | Automation tests | S2a |
+| 18 | `checkf` | S2a |
 
-Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
+Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
 
 ---
 
@@ -228,3 +232,47 @@ Mass APIs are added here as they enter the code (S1: fragments, traits, spawning
 6. **Common mistakes.** Using `FMath::Rand` (global, shared state) for a reproducible layout; hashing `double`s through text.
 7. **Example.** `FRandomStream R(7); const float X = R.FRandRange(-1.f, 1.f);`
 8. **In this project.** The director's settings, the jittered grid and the start-position hash compared across runs (`09` S1).
+
+## 15. `UENUM` and `UMETA`
+
+1. **What it is.** A reflected enum. `UMETA(Hidden)` hides one value from editor lists.
+2. **Why it exists.** Reflected enums print by name (logs, debuggers, `UEnum::GetValueAsString`) and can be used in `UPROPERTY`s and Blueprint.
+3. **How it works.** UHT generates a `UEnum` object describing the values. `enum class … : uint8` is required for Blueprint-exposed enums.
+4. **When to use it.** An enum that appears in reflected data or should print by name.
+5. **When not to.** Internal indices that never leave C++ (the demo's `ESHChannel`, `ESHEventType` are plain enums).
+6. **Common mistakes.** Using a `Count` value as a real choice; forgetting `UMETA(Hidden)` on it.
+7. **Example.** `UENUM() enum class EMood : uint8 { Calm, Angry, Count UMETA(Hidden) };`
+8. **In this project.** `ESHDivergence` (`05` C1).
+
+## 16. `UScriptStruct::CompareScriptStruct` and `CopyScriptStruct`
+
+1. **What it is.** Reflection-based comparison and copy of a struct whose type is known only at run time (`Source/Runtime/CoreUObject/Public/UObject/Class.h:2481, 2491`).
+2. **Why it exists.** Generic code (serialisation, undo, `FInstancedStruct`) must compare or copy structs it doesn't know at compile time.
+3. **How it works.** It walks the struct's reflected properties (`UPROPERTY` members) and compares or copies each one.
+4. **When to use it.** When the type comes from data: the checker compares any channel; S4's hand-off copies any channel.
+5. **When not to.** When the type is known at compile time: plain `==` or assignment is faster.
+6. **Common mistakes.** Members without `UPROPERTY` are ignored; passing memory of a different type (it reads past the end; the checker asserts the type first); expecting a tolerance for floats, or bit identity: numeric properties compare with `==` (`UnrealType.h:1760–1769`), so +0 equals −0 and NaN never equals itself.
+7. **Example.** `if (!Type.CompareScriptStruct(&A, &B, PPF_None)) { /* they differ */ }`
+8. **In this project.** `FSHInvariantChecker::Classify` (`05` C3); S2b's oracle re-sync uses `CopyScriptStruct`.
+
+## 17. Automation tests (`IMPLEMENT_SIMPLE_AUTOMATION_TEST`, `EAutomationTestFlags`)
+
+1. **What it is.** The engine's unit-test framework (`Source/Runtime/Core/Public/Misc/AutomationTest.h`).
+2. **Why it exists.** Tests that run in the editor or game, from the command line, with reports.
+3. **How it works.** The macro declares a test class with a name like `StateHandoff.Checker.Lost` and registers it; `RunTest` calls `TestEqual`/`TestTrue`, which record failures. Flags say where it may run and must include exactly one filter (`AutomationTest.h:4126–4133`). `Automation RunTests <filter>` runs every test whose full name contains the filter (`^` or `$` anchors it: `Source/Developer/AutomationController/Private/AutomationCommandline.cpp:211–227`); failures make the editor exit with −1 (`Source/Developer/AutomationController/Private/AutomationCommandline.cpp:493–504`).
+4. **When to use it.** Pure logic (no world): fast and deterministic.
+5. **When not to.** Behaviour that needs a running world and many frames (use the run checks in `09`).
+6. **Common mistakes.** No filter flag (compile error); `TestEqual` on an enum class (no overload: compare as integers); tests that depend on the order they run in.
+7. **Example.** See `SHInvariantCheckerTests.cpp`.
+8. **In this project.** `StateHandoff.Checker.*` (plugin) and `StateHandoff.Demo.*` (game), run by `Tools\run_tests.bat`.
+
+## 18. `checkf`
+
+1. **What it is.** An assertion with a formatted message.
+2. **Why it exists.** To stop at the first sign of a programming error, close to its cause.
+3. **How it works.** Evaluated in development builds; compiled out of Shipping.
+4. **When to use it.** Conditions that can only be false through a bug (a wrong struct type).
+5. **When not to.** Data that can legitimately be bad (use an error log and a safe fallback).
+6. **Common mistakes.** Side effects inside the condition (they vanish in Shipping).
+7. **Example.** `checkf(Type.IsChildOf(FBase::StaticStruct()), TEXT("%s is not a channel"), *Type.GetName());`
+8. **In this project.** `FSHInvariantChecker::Classify` (`05` C3).

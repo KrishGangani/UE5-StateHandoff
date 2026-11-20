@@ -111,7 +111,7 @@ D:\UNREAL PORTFOLIO\P09_StateHandoff\Tools\                  ← build/package/s
 
 | Class | Base | Responsibility |
 |---|---|---|
-| Demo state (`SHDemoState.h`) | USTRUCTs deriving `FSHChannelFragment`: `FSHHealthState`, `FSHCooldownState`, `FSHMemoryState`, `FSHReservationState`; `FSHAgentIdFragment`; `FSHDemoAgentTag`; `FSHGameplayEvent`; free function `ApplyEvent(…)` | The four channels of `01` §6.1. **One** pure function applies an event to a state struct and bumps its version; the live copy and the oracle both use it, so a correct hand-off gives bit-identical results |
+| Demo state (`SHDemoState.h`; the agent id and tag are in `SHDemoTypes.h`) | USTRUCTs deriving `FSHChannelFragment`: `FSHHealthState`, `FSHCooldownState`, `FSHMemoryState`, `FSHReservationState`; `FSHEvent`, `FSHWrite`, `FSHSlotRegistry`; free functions `SHDemo::MakeEvent`, `Decide`, `ApplyWrite` | The four channels of `01` §6.1. An event is **decided once**, on the oracle's state, into a write (`Decide`); **one** pure function applies that write to a copy and bumps its version (`ApplyWrite`). The live copy and the oracle get the same write, so a correct hand-off gives bit-identical results (S2a, §14) |
 | `USHDemoStateTrait` | `UMassEntityTraitBase` | Adds the four channel fragments, the agent id and the tag in **every** config, so archetypes differ only by what each config adds (memory fairness, SC7) |
 | `ASHDemoAgent` | `AActor`, `IMassActorPoolableInterface` | A mesh, a `USHAgentStateComponent`, a `USHLifecycleComponent`. `CanBePooled` follows `-SHPooling=` |
 | `USHAgentStateComponent` | `UActorComponent` (no tick) | The demo's "actor-side system": the four state structs as `UPROPERTY`s, so SH's reflection channels can find them |
@@ -281,6 +281,7 @@ The workload must be identical in every configuration. Only *where state lives* 
 4. **One frame granularity.** Ownership changes once per frame at the commit point; a write made between the release decision and the commit inside the same Mass phase goes to the entity.
 5. **Single-player, Standalone execution flags only.**
 6. **Experimental engine APIs**, pinned to 5.8.4.
+7. **Not real GAS or blackboards.** The four demo channels stand in for them; v1 builds no adapter (owner decision, 2026-11-21). The results will show that the contract, the commit-time hand-off and the checker work for reflected component state. They will not show that GAS's own state (active effects, granted abilities) moves the same way. The adapter is a growth path: `12`.
 
 ## 13. Rejected alternatives (in full)
 
@@ -296,7 +297,7 @@ The workload must be identical in every configuration. Only *where state lives* 
 | One `TArray<FInstancedStruct>` fragment for all channels | Heap allocation per entity, pointer chasing, no struct-of-arrays layout |
 | Hand-written copy code per actor class | Exactly the per-class code the generic hand-off removes; it is what B1 and B2 represent |
 
-## 14. Changes from the initial plan (README, 2026-11-20 → 2026-11-21)
+## 14. Changes from the initial plan (README, 2026-11-20 → 2026-11-21), and during implementation
 
 | Change | Why |
 |---|---|
@@ -307,3 +308,4 @@ The workload must be identical in every configuration. Only *where state lives* 
 | The checker became event-driven and normalised per 1,000 transitions | Spawn and destroy budgets are wall-clock, so frames don't line up across runs (`01b #8`) |
 | Fault injection (SC2) added to the design | A zero-error checker must prove it can see errors |
 | Workload uses `UMassMovableVisualizationTrait` and MassCrowd-style processor subclasses | 5.8 soft-deprecates the old trait; the processors aren't auto-registered (`01b #13`) |
+| **S2a:** one `ApplyEvent` per copy became `Decide` once (on the oracle) + `ApplyWrite` per copy | Applying the event to each copy would let a stale copy decide differently (an ability "ready" on a copy that missed the last use) and would claim a shared slot twice. Deciding once leaves the hand-off as the only thing that can make the copies differ, which is what the checker must measure |

@@ -2,7 +2,7 @@
 
 > *"This was the problem. This was my investigation. This was my solution. These were my technical decisions. This was how I measured the results."*
 
-**Status (2026-11-21):** Phases 1–4 are done: problem analysis (`01`), verified research (`01b`), final architecture v1.0 (`02`), build steps (`03`), and the UE project foundation (empty modules, built and packaged with Mass enabled, `09`). No gameplay code exists yet, and no results exist yet.
+**Status (2026-11-21):** Phases 1–4 are done: problem analysis (`01`), verified research (`01b`), final architecture v1.0 (`02`), build steps (`03`), and the UE project foundation (built and packaged with Mass enabled, `09`). Phase 5 is in progress: S1 (the Mass workload: entities switching between actor, instanced mesh and none) and S2a (the invariant checker and the demo's state rules, unit-tested) are done (`09`). No results exist yet.
 
 ---
 
