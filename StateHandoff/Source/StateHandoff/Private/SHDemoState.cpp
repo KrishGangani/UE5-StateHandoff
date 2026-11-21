@@ -116,7 +116,7 @@ namespace SHDemo
 		return true;
 	}
 
-	FSHWrite Decide(const FSHAgentState& Expected, const FSHEvent& Event, const int32 Agent, const double Now, FSHSlotRegistry& Registry)
+	FSHWrite Decide(FSHAgentState& Expected, const FSHEvent& Event, const int32 Agent, const double Now, FSHSlotRegistry& Registry)
 	{
 		FSHWrite Write;
 		Write.Type = Event.Type;
@@ -168,6 +168,11 @@ namespace SHDemo
 		default:
 			break;
 		}
+		if (Write.Channel != ESHChannel::Count)
+		{
+			// One numbering per agent and channel, whichever copy receives the write (SHContractTypes.h).
+			Write.Version = ++Expected.Issued[static_cast<int32>(Write.Channel)];
+		}
 		return Write;
 	}
 
@@ -202,8 +207,8 @@ namespace SHDemo
 			static_cast<FSHReservationState&>(Copy).Slot = Write.Slot;
 			break;
 		default:
-			return; // nothing to write: no version bump
+			return; // nothing to write: the version stays
 		}
-		++Copy.Version;
+		Copy.Version = Write.Version;
 	}
 }

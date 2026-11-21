@@ -15,7 +15,7 @@ public class StateHandoff : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine",
 			"MassEntity", "MassCore", "MassSpawner", "MassLOD", "MassRepresentation", "StateHandoffCore" });
 
-		// Private: only .cpp files use them (FMassActorFragment).
-		PrivateDependencyModuleNames.AddRange(new string[] { "MassActors" });
+		// Private: only .cpp files use them (FMassActorFragment; the Behavior processor group name).
+		PrivateDependencyModuleNames.AddRange(new string[] { "MassActors", "MassCommon" });
 	}
 }

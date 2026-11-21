@@ -4,6 +4,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "SHAgentStateComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(SHDemoAgent)
@@ -18,6 +19,8 @@ ASHDemoAgent::ASHDemoAgent()
 	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Mesh->SetGenerateOverlapEvents(false);
 	Mesh->SetCanEverAffectNavigation(false);
+
+	State = CreateDefaultSubobject<USHAgentStateComponent>(TEXT("State"));
 
 	// Looked up once per class, not once per spawned actor. Cooked through DirectoriesToAlwaysCook (DefaultGame.ini).
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));

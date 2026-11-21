@@ -25,8 +25,14 @@
 | 16 | `UScriptStruct::CompareScriptStruct`, `CopyScriptStruct` | S2a |
 | 17 | Automation tests | S2a |
 | 18 | `checkf` | S2a |
+| 19 | `UWorldSubsystem`; Mass subsystem requirements | S2b |
+| 20 | Processing phases and groups | S2b |
+| 21 | Chunk views and the entity iterator | S2b |
+| 22 | Components as data holders, `FindComponentByClass` | S2b |
+| 23 | `CSV_CUSTOM_STAT` | S2b |
+| 24 | `FFileHelper::SaveStringToFile`, `FPaths::ProjectSavedDir` | S2b |
 
-Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
+Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests; S2b: phases, chunk views, subsystem requirements). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
 
 ---
 
@@ -276,3 +282,69 @@ Mass APIs are added here as they enter the code (S1: fragments, traits, spawning
 6. **Common mistakes.** Side effects inside the condition (they vanish in Shipping).
 7. **Example.** `checkf(Type.IsChildOf(FBase::StaticStruct()), TEXT("%s is not a channel"), *Type.GetName());`
 8. **In this project.** `FSHInvariantChecker::Classify` (`05` C3).
+
+## 19. `UWorldSubsystem` without a tick, and Mass subsystem requirements (`AddSubsystemRequirement`, `TMassExternalSubsystemTraits`)
+
+1. **What it is.** A world subsystem is one object per world, created and destroyed with it (`Source/Runtime/Engine/Public/Subsystems/WorldSubsystem.h`). A Mass processor declares which subsystems it uses with `ProcessorRequirements.AddSubsystemRequirement<T>(Access)` (`Source/Runtime/MassEntity/Public/MassRequirements.h:100`) and gets them with `Context.GetMutableSubsystem<T>()` (`MassExecutionContext.h:732`).
+2. **Why it exists.** World-scoped state that several systems share, without placing an actor; for processors, declared access lets Mass order processors that touch the same subsystem.
+3. **How it works.** `TMassExternalSubsystemTraits<T>` says whether `T` may be used off the game thread; without a specialisation, a subsystem is treated as game-thread-only (`Source/Runtime/Mass/MassCore/Public/Mass/ExternalSubsystemTraits.h:26–35`), which forces the processor onto the game thread.
+4. **When to use it.** State that both processors and ordinary game code need, for the world's lifetime.
+5. **When not to.** Per-entity data (a fragment); work that needs its own tick at a specific point (a tickable subsystem, or a processor in a phase).
+6. **Common mistakes.** Accessing a subsystem from a processor without declaring it (Mass can't order the access); declaring a subsystem thread-safe that isn't; caching a subsystem pointer beyond its world.
+7. **Example.** `ProcessorRequirements.AddSubsystemRequirement<USHWorkloadSubsystem>(EMassFragmentAccess::ReadWrite);`
+8. **In this project.** `USHWorkloadSubsystem` (`05` D4), used by both workload processors and by the director.
+
+## 20. Processing phases and groups (`ProcessingPhase`, `ExecuteInGroup`, `ExecuteBefore`, `UE::Mass::ProcessorGroupNames`)
+
+1. **What it is.** Where a processor runs in the frame: a **phase** (PrePhysics … FrameEnd), and inside a phase a named **group** with order constraints (`Source/Runtime/MassEntity/Public/MassProcessingTypes.h`, `MassProcessor.h:244`).
+2. **Why it exists.** Processors are ordered by declared dependencies, not by registration order.
+3. **How it works.** Each phase runs in one world tick group: PrePhysics in `TG_PrePhysics` … FrameEnd in `TG_LastDemotable` (`Source/Runtime/MassEntity/Private/MassProcessingPhaseManager.cpp:46–51`). The world runs `TG_LastDemotable` after tickable objects and `TG_PostUpdateWork` (`Source/Runtime/Engine/Private/LevelTick.cpp:1821, 1877, 1883`). Group names are plain `FName`s: `Behavior` from MassCommon (`MG/MassCommon/Public/MassCommonTypes.h:22`), `Representation` and its sub-group `Representation.VisualizationProcessing` from MassRepresentation (`MG/MassRepresentation/Public/MassRepresentationTypes.h:27–30`).
+4. **When to use it.** Always state the phase and order a processor depends on.
+5. **When not to.** Don't invent a group name to force an order that a dependency would state better.
+6. **Common mistakes.** Assuming FrameEnd means "after rendering" (it is a tick group inside the world tick); a typo in a group name (an `FName` is just a name, so a misspelt group is a different group, not an error) **[inferred]**; ordering against a group that isn't in the same phase.
+7. **Example.** `ExecutionOrder.ExecuteInGroup = UE::Mass::ProcessorGroupNames::Behavior; ExecutionOrder.ExecuteBefore.Add(UE::Mass::ProcessorGroupNames::Representation);`
+8. **In this project.** `USHSimEventProcessor` (PrePhysics, Behavior, before Representation) and `USHFrameEndProcessor` (FrameEnd) (`05` D5).
+
+## 21. Chunk views and the entity iterator (`GetFragmentView`, `GetMutableFragmentView`, `FEntityIterator`, `FMassActorFragment::GetMutable`)
+
+1. **What it is.** Inside `ForEachEntityChunk`, a processor reads one chunk's fragments as arrays (`TConstArrayView` / `TArrayView`) and walks its entities with `CreateEntityIterator()` (`Source/Runtime/MassEntity/Public/MassExecutionContext.h:256, 268, 349`).
+2. **Why it exists.** Fragments of one type are stored contiguously per chunk, so a loop over an array view is cache-friendly.
+3. **How it works.** The iterator converts to the entity's index in the chunk (`operator int32`, `:268`), so `View[It]` is that entity's fragment. A mutable view needs the requirement declared `ReadWrite`. `FMassActorFragment::GetMutable()` is non-`const` (`MG/MassActors/Public/MassActorSubsystem.h:117`), so a mutable actor pointer needs the actor fragment's view to be mutable too.
+4. **When to use it.** Every per-entity loop in a processor.
+5. **When not to.** Outside the chunk callback: a view's memory is only valid during that chunk's iteration.
+6. **Common mistakes.** Storing a pointer into a view (the entity may move archetype and the memory with it); requesting `ReadOnly` and then needing to write; fetching views per entity instead of once per chunk.
+7. **Example.** `const TConstArrayView<FSHAgentIdFragment> Ids = Context.GetFragmentView<FSHAgentIdFragment>(); for (auto It = Context.CreateEntityIterator(); It; ++It) { Use(Ids[It]); }`
+8. **In this project.** `SHWorkloadProcessors::FChunkViews` (`05` D5).
+
+## 22. Components as data holders (`UActorComponent`, `PrimaryComponentTick.bCanEverTick`, `FindComponentByClass`)
+
+1. **What it is.** A component is a `UObject` owned by an actor; `PrimaryComponentTick.bCanEverTick` says whether it ever ticks; `AActor::FindComponentByClass<T>()` returns the actor's first component of a class, or null (`Source/Runtime/Engine/Classes/GameFramework/Actor.h:3788`).
+2. **Why it exists.** Actors are built from reusable parts; gameplay systems usually keep their state in a component.
+3. **How it works.** A component created with `CreateDefaultSubobject` in the actor's constructor exists on every instance. `FindComponentByClass` walks the actor's component list.
+4. **When to use it.** State that belongs to the actor and should live and die with it.
+5. **When not to.** State that must outlive the actor, such as an agent's state across a representation change: that is exactly the problem this project studies.
+6. **Common mistakes.** Leaving ticking on for a data holder (per-frame cost for nothing); calling `FindComponentByClass` in a hot loop over many actors when a cached pointer would do.
+7. **Example.** `State = CreateDefaultSubobject<USHAgentStateComponent>(TEXT("State"));`
+8. **In this project.** `USHAgentStateComponent` (`05` D2), found once per agent per processor pass (`05` D5). S4's hand-off will cache it per binding.
+
+## 23. `CSV_CUSTOM_STAT` and `ECsvCustomStatOp`
+
+1. **What it is.** A per-frame custom value in the CSV profiler (`Source/Runtime/Core/Public/ProfilingDebugging/CsvProfiler.h:155`).
+2. **Why it exists.** Game counters next to the engine's timings, frame by frame.
+3. **How it works.** `CSV_CUSTOM_STAT(Category, Name, Value, Op)` adds a column `Category/Name`; `ECsvCustomStatOp` is `Set`, `Min`, `Max` or `Accumulate` (`:219–225`): `Set` replaces the frame's value, `Accumulate` adds to it. Compiled out without the profiler (`:185`).
+4. **When to use it.** One aggregated value per frame.
+5. **When not to.** Per entity (about 50 ns a call, measured in UE5-UpdateBudget): count in a member, publish once.
+6. **Common mistakes.** Publishing per object instead of once per frame; a category defined in one file and used in another without `CSV_DECLARE_CATEGORY_EXTERN` (`:52`).
+7. **Example.** `CSV_CUSTOM_STAT(SHWorkload, Transitions, FrameCounts.Transitions, ECsvCustomStatOp::Set);`
+8. **In this project.** `USHWorkloadSubsystem::EndFrame` publishes five counts every frame (`05` D4).
+
+## 24. Writing a file: `FFileHelper::SaveStringToFile`, `FPaths::ProjectSavedDir`
+
+1. **What it is.** Write a string to a file in one call (`Source/Runtime/Core/Public/Misc/FileHelper.h:196`); the project's `Saved` directory (`Source/Runtime/Core/Public/Misc/Paths.h:290`).
+2. **Why it exists.** Simple reports without managing file handles.
+3. **How it works.** If the file can't be opened, the file manager creates its directory and tries again (`Source/Runtime/Core/Private/HAL/FileManagerGeneric.cpp:110–116`); the call returns `false` on failure. In a packaged build, `ProjectSavedDir()` is the build's own `Saved` folder (`Build\Windows\StateHandoff\Saved` here).
+4. **When to use it.** One report at the end of a run.
+5. **When not to.** Writing every frame (build the text in memory and write once).
+6. **Common mistakes.** Ignoring the return value; assuming the packaged game writes to the project's `Saved` folder.
+7. **Example.** `FFileHelper::SaveStringToFile(Report, *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SHRuns"), Name));`
+8. **In this project.** `USHWorkloadSubsystem::WriteReport` (`05` D4); `run_bench.py` collects the file (`05` D9).

@@ -9,8 +9,8 @@
  * Adds what a demo agent is made of, identically in all five configurations (B0-B3, SH), so archetypes differ only by
  * what each configuration adds on top (02 section 4.2; memory fairness, SC7).
  *
- * S1: the transform (the visualization trait requires it but doesn't add it), the actor fragment (the same), the agent
- * index and the demo tag. S2 adds the four state channels.
+ * The transform (the visualization trait requires it but doesn't add it), the actor fragment (the same), the agent
+ * index, the demo tag, the entity's copy of the four state channels, and the checker's observed-representation record.
  */
 UCLASS(meta = (DisplayName = "SH Demo State"))
 class USHDemoStateTrait : public UMassEntityTraitBase

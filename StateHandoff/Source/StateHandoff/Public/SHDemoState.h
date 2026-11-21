@@ -14,7 +14,8 @@ class UScriptStruct;
  * interaction slot (an actor-made Smart Object claim). They are modelled, not real GAS: a stated limit (01 section 8).
  *
  * Every channel derives from FSHChannelFragment, so the same type is the entity fragment, the actor component's
- * property and the oracle's expected copy. Every write goes through SHDemo::ApplyWrite, which bumps Version once.
+ * property and the oracle's expected copy. Every write goes through SHDemo::ApplyWrite, which stamps Version with the
+ * write's sequence number (decided once, by SHDemo::Decide, from the oracle's FSHAgentState::Issued).
  */
 
 /** Health, as an attribute set would hold it. */
@@ -95,6 +96,10 @@ struct FSHAgentState
 	FSHMemoryState Memory;
 	FSHReservationState Reservation;
 
+	/** Writes decided so far, per channel: the sequence number of the latest one. Not part of any channel struct, so a
+	 *  re-sync of a channel (which copies the struct) never rewinds the numbering. */
+	uint32 Issued[static_cast<int32>(ESHChannel::Count)] = {};
+
 	FSHChannelFragment& Get(ESHChannel Channel);
 	const FSHChannelFragment& Get(ESHChannel Channel) const;
 };
@@ -111,8 +116,9 @@ enum class ESHEventType : uint8
 	Count
 };
 
-/** Where in the frame an event is applied: before the representation is decided (entity-side gameplay), or after
- *  physics (actor-side gameplay, only for agents that have an actor). */
+/** Where in the frame an event is applied: before the representation is decided (entity-side gameplay), or at the end
+ *  of the frame, after physics (actor-side gameplay). Every agent can get an event at both points; the configuration's
+ *  router decides which copy it writes. */
 enum class ESHEventPoint : uint8
 {
 	Simulation,
@@ -138,6 +144,8 @@ struct FSHWrite
 {
 	/** Count = the event changes nothing (an ability not ready, nothing to release, no free slot). */
 	ESHChannel Channel = ESHChannel::Count;
+	/** The write's sequence number for this agent and channel (1, 2, ...): every copy that applies it stores it. */
+	uint32 Version = 0;
 	ESHEventType Type = ESHEventType::Damage;
 	float Amount = 0.f;
 	int32 Ability = 0;
@@ -193,10 +201,11 @@ namespace SHDemo
 
 	/**
 	 * Decides what Event does to agent Agent, from its expected state (the oracle) and the slot registry, at world time
-	 * Now. Claims and releases update the registry here, once. Returns a write with Channel == Count if nothing changes.
+	 * Now. Claims and releases update the registry here, once, and a real write takes the next sequence number from
+	 * Expected.Issued. Returns a write with Channel == Count if nothing changes.
 	 */
-	FSHWrite Decide(const FSHAgentState& Expected, const FSHEvent& Event, int32 Agent, double Now, FSHSlotRegistry& Registry);
+	FSHWrite Decide(FSHAgentState& Expected, const FSHEvent& Event, int32 Agent, double Now, FSHSlotRegistry& Registry);
 
-	/** Applies a decided write to one copy of its channel and bumps that copy's version. Copy must be of Write's type. */
+	/** Applies a decided write to one copy of its channel and stores its version. Copy must be of Write's type. */
 	void ApplyWrite(FSHChannelFragment& Copy, const FSHWrite& Write);
 }

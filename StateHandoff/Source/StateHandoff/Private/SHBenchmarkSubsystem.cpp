@@ -25,6 +25,8 @@
 #include "SHDemoAgent.h"
 #include "SHDemoStateTrait.h"
 #include "SHDemoTypes.h"
+#include "SHStateRouter.h"
+#include "SHWorkloadSubsystem.h"
 #include "Stats/Stats.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(SHBenchmarkSubsystem)
@@ -93,6 +95,20 @@ USHBenchmarkSubsystem::FRunSettings USHBenchmarkSubsystem::ReadRunSettings()
 	FParse::Value(CommandLine, TEXT("SHRunTag="), Read.RunTag);
 	Read.bExitWhenDone = FParse::Param(CommandLine, TEXT("SHExit"));
 	Read.bLogCounts = FParse::Param(CommandLine, TEXT("SHLogCounts"));
+	FString ConfigName;
+	if (FParse::Value(CommandLine, TEXT("SHConfig="), ConfigName))
+	{
+		Read.bConfigValid = SHDemo::ParseConfig(ConfigName, Read.Config);
+	}
+	FParse::Value(CommandLine, TEXT("SHEventRate="), Read.EventRate);
+	int32 Check = 1;
+	FParse::Value(CommandLine, TEXT("SHCheck="), Check);
+	Read.bCheck = Check != 0;
+	Read.bParked = FParse::Param(CommandLine, TEXT("SHParked"));
+	if (Read.bParked)
+	{
+		Read.FlipEverySeconds = 0.0; // a parked camera never flips, whatever -SHFlipEvery says
+	}
 	return Read;
 }
 
@@ -110,6 +126,22 @@ bool USHBenchmarkSubsystem::ValidateRunSettings() const
 	{
 		UE_LOG(LogSHBench, Error, TEXT("-SHFlipEvery=%.3f must be 0 (no flips) or between %.1f s and the %.3f s capture."),
 			Settings.FlipEverySeconds, SHBench::MinFlipEverySeconds, Settings.CaptureSeconds);
+		bValid = false;
+	}
+	if (!Settings.bConfigValid)
+	{
+		UE_LOG(LogSHBench, Error, TEXT("-SHConfig must be one of B0, B1, B2, B3, SH."));
+		bValid = false;
+	}
+	else if (!SHRouter::IsImplemented(Settings.Config))
+	{
+		// Refused before anything is spawned, so a refused run leaves an empty world.
+		UE_LOG(LogSHBench, Error, TEXT("-SHConfig=%s is not implemented yet."), SHDemo::GetConfigName(Settings.Config));
+		bValid = false;
+	}
+	if (Settings.EventRate < 0.f || Settings.EventRate > 1.f)
+	{
+		UE_LOG(LogSHBench, Error, TEXT("-SHEventRate=%.4f must be a probability (0 to 1)."), Settings.EventRate);
 		bValid = false;
 	}
 	if (!FApp::UseFixedTimeStep())
@@ -205,7 +237,8 @@ void USHBenchmarkSubsystem::UpdateCamera(UWorld& World, double SecondsFromBenchS
 
 	const double HotSpotX = (HotSpot == 0 ? -1.0 : 1.0) * SHBench::HotSpotFraction * ArenaHalfExtent;
 	const FVector Center(HotSpotX, 0.0, SHBench::AgentHeight);
-	const double Angle = 2.0 * UE_DOUBLE_PI * SecondsFromBenchStart / SHBench::OrbitSeconds;
+	// Parked: angle 0 for the whole run, so the LOD settles in the warm-up and nothing changes representation after it.
+	const double Angle = Settings.bParked ? 0.0 : 2.0 * UE_DOUBLE_PI * SecondsFromBenchStart / SHBench::OrbitSeconds;
 	const FVector Location(HotSpotX + SHBench::OrbitRadius * FMath::Cos(Angle), SHBench::OrbitRadius * FMath::Sin(Angle), SHBench::CameraHeight);
 	Camera->SetActorLocationAndRotation(Location, (Center - Location).Rotation());
 
@@ -271,7 +304,8 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 		Phase = ERunPhase::Idle;
 		if (Settings.bExitWhenDone)
 		{
-			FPlatformMisc::RequestExitWithStatus(false, 3, TEXT("USHBenchmarkSubsystem: invalid run settings"));
+			// Forced: on Windows a normal exit doesn't keep the code (WindowsPlatformMisc.cpp:1493-1521; AGENT_BRIEF rule 12).
+			FPlatformMisc::RequestExitWithStatus(true, 3, TEXT("USHBenchmarkSubsystem: invalid run settings"));
 		}
 		return;
 	}
@@ -281,6 +315,24 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 	const uint32 PositionHash = SpawnAgents(World);
 	UE_LOG(LogSHBench, Display, TEXT("Spawned %d Mass entities (seed %d) in %.1f ms; start-position hash 0x%08X"),
 		Agents.Num(), Settings.Seed, (FPlatformTime::Seconds() - SpawnStart) * 1000.0, PositionHash);
+
+	// The workload and the checker start with the entities. A configuration that isn't usable yet stops the run.
+	USHWorkloadSubsystem::FRunConfig WorkloadRun;
+	WorkloadRun.Config = Settings.Config;
+	WorkloadRun.Seed = static_cast<uint32>(Settings.Seed);
+	WorkloadRun.EventRate = Settings.EventRate;
+	WorkloadRun.bCheck = Settings.bCheck;
+	WorkloadRun.RunTag = Settings.RunTag;
+	Workload = World.GetSubsystem<USHWorkloadSubsystem>();
+	if (!Workload || !Workload->BeginRun(WorkloadRun, Agents.Num()))
+	{
+		Phase = ERunPhase::Idle;
+		if (Settings.bExitWhenDone)
+		{
+			FPlatformMisc::RequestExitWithStatus(true, 3, TEXT("USHBenchmarkSubsystem: the workload could not start"));
+		}
+		return;
+	}
 
 	Camera = World.SpawnActor<ACameraActor>();
 	FirstTickTime = Now;
@@ -293,6 +345,10 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 	CSV_METADATA(TEXT("SHFlipEvery"), *FString::SanitizeFloat(Settings.FlipEverySeconds));
 	CSV_METADATA(TEXT("SHWarmup"), *FString::SanitizeFloat(Settings.WarmupSeconds));
 	CSV_METADATA(TEXT("SHCapture"), *FString::SanitizeFloat(Settings.CaptureSeconds));
+	CSV_METADATA(TEXT("SHConfig"), SHDemo::GetConfigName(Settings.Config));
+	CSV_METADATA(TEXT("SHEventRate"), *FString::SanitizeFloat(Settings.EventRate));
+	CSV_METADATA(TEXT("SHCheck"), Settings.bCheck ? TEXT("1") : TEXT("0"));
+	CSV_METADATA(TEXT("SHParked"), Settings.bParked ? TEXT("1") : TEXT("0"));
 }
 
 void USHBenchmarkSubsystem::Tick(float DeltaTime)
@@ -320,6 +376,7 @@ void USHBenchmarkSubsystem::Tick(float DeltaTime)
 		{
 			Phase = ERunPhase::Capture;
 			CSV_EVENT(SHBench, TEXT("BenchStart"));
+			Workload->SetCapturing(true);
 			UE_LOG(LogSHBench, Display, TEXT("BenchStart at %.3f s (warm-up %.1f s)"), Now, Settings.WarmupSeconds);
 		}
 		else if (FromBenchStart + DeltaTime >= 0.0)
@@ -370,6 +427,10 @@ void USHBenchmarkSubsystem::Tick(float DeltaTime)
 		{
 			// The frame after BenchEnd: outside the capture (-csvStopOnEvent=BenchEnd ends it with the BenchEnd frame).
 			LogRepresentationCounts(TEXT("BenchEnd"));
+			// Counting stops here, not at BenchEnd: the BenchEnd frame's sweep (FrameEnd phase, after this tick) belongs to
+			// the capture, which -csvStopOnEvent=BenchEnd ends with that frame. (The CSV starts one frame after BenchStart, 09 S2b.)
+			Workload->SetCapturing(false);
+			Workload->WriteReport();
 		}
 		if (Settings.bExitWhenDone && FramesSinceEnd >= SHBench::ExitDelayFrames)
 		{

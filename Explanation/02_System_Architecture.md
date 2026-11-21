@@ -90,7 +90,7 @@ D:\UNREAL PORTFOLIO\P09_StateHandoff\Tools\                  ← build/package/s
 
 | Class | Kind / base | Responsibility | Why it exists, and what we rejected |
 |---|---|---|---|
-| Contract types (`SHContractTypes.h`) | `UENUM ESHOwnershipMode { EntityOwned, ActorWhileBound }`; `USTRUCT FSHChannelFragment : FMassFragment { uint32 Version; }`; `USTRUCT FSHChannelSpec { TSubclassOf<UActorComponent> ComponentClass; FName PropertyName; ESHOwnershipMode Mode; }`; `USTRUCT FSHHandoffFragment : FMassFragment { TWeakObjectPtr<AActor> BoundActor; bool bActorOwns; }`; `USTRUCT FSHChannelSetFragment : FMassConstSharedFragment { int32 ChannelSetIndex; }`; `USTRUCT FSHHandoffTag : FMassTag` | The vocabulary of the contract. Every channel's state struct derives from `FSHChannelFragment`, so the same struct type is both the entity fragment and the component property, and every write bumps `Version` | *Rejected:* one fragment holding a `TArray<FInstancedStruct>` of all channels (a heap allocation and pointer chase per entity; it defeats Mass's chunked struct-of-arrays layout) |
+| Contract types (`SHContractTypes.h`) | `UENUM ESHOwnershipMode { EntityOwned, ActorWhileBound }`; `USTRUCT FSHChannelFragment : FMassFragment { uint32 Version; }`; `USTRUCT FSHChannelSpec { TSubclassOf<UActorComponent> ComponentClass; FName PropertyName; ESHOwnershipMode Mode; }`; `USTRUCT FSHHandoffFragment : FMassFragment { TWeakObjectPtr<AActor> BoundActor; bool bActorOwns; }`; `USTRUCT FSHChannelSetFragment : FMassConstSharedFragment { int32 ChannelSetIndex; }`; `USTRUCT FSHHandoffTag : FMassTag` | The vocabulary of the contract. Every channel's state struct derives from `FSHChannelFragment`, so the same struct type is both the entity fragment and the component property, and every write stamps `Version` with the next number of one per-agent, per-channel sequence that all copies share (S2b, §14) | *Rejected:* one fragment holding a `TArray<FInstancedStruct>` of all channels (a heap allocation and pointer chase per entity; it defeats Mass's chunked struct-of-arrays layout) |
 | `USHStateHandoffTrait` | `UMassEntityTraitBase` | Declares the channels (`TArray<FSHChannelSpec>`). `BuildTemplate` registers the channel set with the subsystem and adds `FSHHandoffFragment`, each channel's fragment type if missing (`HasFragment` / `AddFragment(FConstStructView)`, `01b` §4), the const shared fragment with the set index, and the tag. Reaching a world subsystem and creating a shared fragment inside `BuildTemplate` follows the engine's own visualization trait (`UWorld::GetSubsystem` and `EntityManager.GetOrCreateSharedFragment`, `MG/MassRepresentation/Private/MassVisualizationTrait.cpp:71–84`), including its rule to skip side effects when `BuildContext.IsInspectingData()` is true (editor inspection, `:73–78`). `ValidateTemplate` rejects a spec whose property is missing, isn't a struct derived from `FSHChannelFragment`, or is declared twice | Traits are how Mass composes entity types, so declaring a channel is one data entry, not code (goal 2). *Rejected:* a C++ registration call per actor class, which is exactly the per-class code we want to remove |
 | `USHStateHandoffSubsystem` | `UWorldSubsystem` (Game and PIE worlds only) | Owns the **resolved channel sets** (`UScriptStruct*`, `FStructProperty*`, component class, mode), performs `Bind` (restore) and `Unbind` (capture), answers the gameplay query "where is the authoritative copy of channel T for this entity?", keeps an actor → entity map for the `OnEndPlay` safety net, collects per-frame telemetry and per-transition timings, and holds the fault-injection switches (non-Shipping builds only) | Its lifetime is the world's, which is the lifetime of the entities and actors it connects. Resolving properties once (at template build) keeps reflection out of the per-transition path. *Rejected:* putting this in the processor, which game code can't reach; a manager actor (can be destroyed or duplicated) |
 | `USHHandoffProcessor` | `UMassProcessor`, PrePhysics, `ExecuteAfter Representation.VisualizationProcessing`, game thread | Each frame: for every entity with `FSHHandoffTag`, compute `Bound` (§2) from `FMassRepresentationFragment` and `FMassActorFragment`; compare with `FSHHandoffFragment::BoundActor`; queue unbinds and binds; after the chunk loop, ask the subsystem to perform them; publish telemetry once | The commit point (`01b #3`). It runs before the end of the phase, so an actor whose release was queued this frame is still alive to capture from. The hand-offs run after the chunk loop because channel fragment types are chosen by data and are not part of the query |
@@ -111,7 +111,7 @@ D:\UNREAL PORTFOLIO\P09_StateHandoff\Tools\                  ← build/package/s
 
 | Class | Base | Responsibility |
 |---|---|---|
-| Demo state (`SHDemoState.h`; the agent id and tag are in `SHDemoTypes.h`) | USTRUCTs deriving `FSHChannelFragment`: `FSHHealthState`, `FSHCooldownState`, `FSHMemoryState`, `FSHReservationState`; `FSHEvent`, `FSHWrite`, `FSHSlotRegistry`; free functions `SHDemo::MakeEvent`, `Decide`, `ApplyWrite` | The four channels of `01` §6.1. An event is **decided once**, on the oracle's state, into a write (`Decide`); **one** pure function applies that write to a copy and bumps its version (`ApplyWrite`). The live copy and the oracle get the same write, so a correct hand-off gives bit-identical results (S2a, §14) |
+| Demo state (`SHDemoState.h`; the agent id and tag are in `SHDemoTypes.h`) | USTRUCTs deriving `FSHChannelFragment`: `FSHHealthState`, `FSHCooldownState`, `FSHMemoryState`, `FSHReservationState`; `FSHEvent`, `FSHWrite`, `FSHSlotRegistry`; free functions `SHDemo::MakeEvent`, `Decide`, `ApplyWrite` | The four channels of `01` §6.1. An event is **decided once**, on the oracle's state, into a write (`Decide`); **one** pure function applies that write to a copy and stores its sequence number as the copy's version (`ApplyWrite`). The live copy and the oracle get the same write, so a correct hand-off gives bit-identical results (S2a, §14) |
 | `USHDemoStateTrait` | `UMassEntityTraitBase` | Adds the four channel fragments, the agent id and the tag in **every** config, so archetypes differ only by what each config adds (memory fairness, SC7) |
 | `ASHDemoAgent` | `AActor`, `IMassActorPoolableInterface` | A mesh, a `USHAgentStateComponent`, a `USHLifecycleComponent`. `CanBePooled` follows `-SHPooling=` |
 | `USHAgentStateComponent` | `UActorComponent` (no tick) | The demo's "actor-side system": the four state structs as `UPROPERTY`s, so SH's reflection channels can find them |
@@ -119,12 +119,12 @@ D:\UNREAL PORTFOLIO\P09_StateHandoff\Tools\                  ← build/package/s
 | `USHB2MirrorProcessor` + `USHB2ActorManagement` | `UMassProcessor` (`SyncWorldToMass`, game thread, needs `FSHMirrorTag`) + `UMassRepresentationActorManagement` | **Baseline B2**: copy every channel actor → entity every frame; push entity → actor in `OnPostActorSpawn`. The tag is added only in B2, so the processor matches nothing in other configs |
 | `USHVisualizationProcessor`, `USHVisualizationLODProcessor`, `USHLODCollectorProcessor` | `UMassVisualizationProcessor`, `UMassVisualizationLODProcessor`, `UMassLODCollectorProcessor` | Make Mass representation run for our tag, with `bAutoRegisterWithProcessingPhases = true`, exactly as MassCrowd does (`01b #13`) |
 | `USHSimEventProcessor` | `UMassProcessor`, group `Behavior`, `ExecuteBefore Representation`, game thread | The **simulation event point**: entity-side gameplay events, routed by the config's rule |
-| `USHObserverProcessor` | `UMassProcessor`, `ExecuteAfter Representation.VisualizationProcessing` | Counts transitions by kind in **every** config, from `FMassRepresentationFragment` and a 1-byte "last seen" fragment. The checker's denominator never depends on the system under test |
-| `FSHStateRouter`, `FSHOracle`, `FSHSlotRegistry` | Plain C++ | Router: per config, which copy is authoritative (B0/B2: the actor's if the entity has an actor, else the entity's; B1: the actor's if hydrated; B3: always the entity's; SH: the subsystem's answer). Oracle: the expected state per agent. Slot registry: the M shared interaction slots |
-| `USHWorkloadSubsystem` | `UTickableWorldSubsystem` (ticks after the director) | The **actor event point** (after physics), the checker sweep (every agent, every channel, via the router, compared with the oracle; incidents counted, then the oracle re-synced so each root cause counts once), reservation invariants (double-held, leaked), workload CSV stats |
+| `USHFrameEndProcessor` | `UMassProcessor`, FrameEnd phase (`TG_LastDemotable`, after tickables), game thread | One pass per frame over every agent: the **actor event point** (after physics and the director), the transition count by kind in **every** config (from `FMassRepresentationFragment` and the checker's own `FSHObservedFragment`, so the denominator never depends on the system under test), and the checker sweep (S2b, §14) |
+| `FSHAgentView` + `SHRouter`, `FSHSlotRegistry` | Plain C++ | Router: per config, which copy is authoritative (B0/B2: the actor's if the entity has an actor, else the entity's; B1: the actor's if hydrated; B3: always the entity's; SH: the subsystem's answer), read through one per-agent view of the entity's fragments and the actor's component. Slot registry: the M shared interaction slots (S2a) |
+| `USHWorkloadSubsystem` | `UWorldSubsystem` (no tick: the two processors call it) | The oracle (expected state per agent) and the registry; applies each event's decided write to the oracle and the router's copy; the checker sweep (every agent, every channel, via the router, compared with the oracle; incidents counted, then the oracle re-synced so each root cause counts once); reservation invariants (leaked, double-held); workload CSV stats; the end-of-run incident report |
 | `USHBenchmarkSubsystem` | `UTickableWorldSubsystem` (Game/PIE) | The **director**: reads `-SH…=` values; builds the entity config in code (`FMassEntityConfig::AddTrait`, `01b` §4) with the traits each config needs and the right actor-management class; spawns N entities from a seed; drives the camera path and the flips; fires `CSV_EVENT`s `BenchStart`, `BenchFlip`, `BenchEnd`; writes CSV metadata and the end-of-run report; dumps `mass.LogArchetypes` / `obj list` for the memory table |
 
-**Command line** (read by the director, as in UE5-UpdateBudget): `-SHConfig=B0|B1|B2|B3|SH`, `-SHAgents=`, `-SHSeed=`, `-SHPooling=0|1`, `-SHKeepLowRes=0|1`, `-SHCheck=0|1`, `-SHFlipEvery=<s>`, `-SHWarmup=<s>`, `-SHCapture=<s>`, `-SHFault=<mask>`, `-SHRunTag=`.
+**Command line** (read by the director, as in UE5-UpdateBudget): `-SHConfig=B0|B1|B2|B3|SH`, `-SHAgents=`, `-SHSeed=`, `-SHPooling=0|1`, `-SHKeepLowRes=0|1`, `-SHCheck=0|1`, `-SHEventRate=<p>`, `-SHFlipEvery=<s>`, `-SHParked`, `-SHWarmup=<s>`, `-SHCapture=<s>`, `-SHFault=<mask>`, `-SHRunTag=`.
 
 ## 5. Overview diagram
 
@@ -144,10 +144,10 @@ flowchart LR
   end
   subgraph Game["Game module: StateHandoff"]
     DIR["USHBenchmarkSubsystem<br/>config · spawn · camera · flips · CSV"]
-    WL["USHWorkloadSubsystem<br/>actor events · checker sweep · slots"]
+    WL["USHWorkloadSubsystem<br/>oracle · slots · sweep · report"]
     SIM["USHSimEventProcessor<br/>simulation events"]
-    RT["FSHStateRouter<br/>(per-config rule)"]
-    OR["FSHOracle<br/>expected state"]
+    FE["USHFrameEndProcessor<br/>actor events · transitions · sweep"]
+    RT["SHRouter<br/>(per-config rule)"]
     AG["ASHDemoAgent<br/>USHAgentStateComponent"]
     BL["Baselines: B1 lifecycle comp ·<br/>B2 mirror + push · B3 entity-owned"]
   end
@@ -159,7 +159,9 @@ flowchart LR
   AM -->|"Unbind first"| SUB
   SUB -->|"capture / restore (reflection)"| AG
   AG -.->|"OnEndPlay safety net"| SUB
-  SIM --> RT
+  SIM --> WL
+  FE --> WL
+  VIS -->|"CurrentRepresentation"| FE
   WL --> RT
   RT -->|"SH: ask owner"| SUB
   RT -->|"B0–B3: own rule"| BL
@@ -179,18 +181,19 @@ sequenceDiagram
   participant REP as Representation processor (Mass)
   participant HP as USHHandoffProcessor
   participant SUB as USHStateHandoffSubsystem
+  participant FE as USHFrameEndProcessor
   participant WL as USHWorkloadSubsystem
   Note over SP,HP: TG_PrePhysics: Mass PrePhysics phase
   SP->>SUB: OnPreActorSpawn (via USHRepresentationActorManagement): Unbind old actor before immediate release
   SP->>SP: spawn or take from pool (budgeted 1.5 ms)
-  SIM->>SUB: simulation events: write the authoritative copy
+  SIM->>WL: simulation events: decide on the oracle, write it and the authoritative copy
   REP->>REP: CurrentRepresentation decided; actors enabled, disabled, release queued
   HP->>HP: per entity: Bound now vs BoundActor
   HP->>SUB: Unbind(A): capture A → fragments ; Bind(B): restore fragments → B
   SP->>SP: end of phase: queued releases → pool (PrepareForPooling) or destroy (EndPlay → safety net)
-  Note over WL: after TG_PostPhysics: tickable subsystems
-  WL->>SUB: actor events: write the authoritative copy
-  WL->>WL: checker sweep: observed (router) vs oracle, classify, re-sync
+  Note over FE,WL: TG_LastDemotable: Mass FrameEnd phase (after tickables, so after the director's camera move)
+  FE->>WL: actor events: decide on the oracle, write it and the authoritative copy
+  FE->>WL: transitions (own fragment) · checker sweep: observed (router) vs oracle, classify, re-sync
 ```
 
 ### Hand-off, in code-sized pseudocode (the real code mirrors this)
@@ -257,7 +260,7 @@ The workload must be identical in every configuration. Only *where state lives* 
 | B3 | same | engine default | nobody (no actor copy is ever used) | always the entity's |
 | SH | same + `USHStateHandoffTrait` | `USHRepresentationActorManagement` | the hand-off processor, pre-spawn capture, safety net | the subsystem's answer |
 
-**Measuring correctness identically:** the checker reads each agent's state through the config's own router (what that config's gameplay would see), compares it with the oracle, and counts transitions with its own observer processor. The same events reach every config, in the same order, from the same seed.
+**Measuring correctness identically:** the checker reads each agent's state through the config's own router (what that config's gameplay would see), compares it with the oracle, and counts transitions from its own `FSHObservedFragment` in the FrameEnd processor. The same events reach every config, in the same order, from the same seed.
 
 ## 10. C++ vs Blueprint
 
@@ -308,4 +311,7 @@ The workload must be identical in every configuration. Only *where state lives* 
 | The checker became event-driven and normalised per 1,000 transitions | Spawn and destroy budgets are wall-clock, so frames don't line up across runs (`01b #8`) |
 | Fault injection (SC2) added to the design | A zero-error checker must prove it can see errors |
 | Workload uses `UMassMovableVisualizationTrait` and MassCrowd-style processor subclasses | 5.8 soft-deprecates the old trait; the processors aren't auto-registered (`01b #13`) |
+| **S2b:** the observer processor (after `VisualizationProcessing`) and the tickable workload subsystem became one `USHFrameEndProcessor` (FrameEnd phase) calling a plain `UWorldSubsystem` | FrameEnd runs in `TG_LastDemotable`, after tickable objects (`MassProcessingPhaseManager.cpp:51`, `LevelTick.cpp:1821, 1883`), so it is still "after physics and after the director", and it sees the representation the engine committed this frame. A processor walks every agent's fragments in chunks; a tickable subsystem would have to look each entity up again. One pass does the actor events, the transition count and the sweep |
+| **S2b:** `Version` became a shared sequence number (stamped by each write), not a per-copy counter (bumped by each write) | Found in the S2b code review: the checker re-syncs the oracle to the copy the game sees, so with per-copy counters the oracle took on one copy's numbering, and a later switch to the other copy compared two unrelated counters (a stale entity copy came out *duplicated*). With one numbering per agent and channel, kept outside the channel structs so a re-sync can't rewind it, a stale copy is always *lost*. Test `StateHandoff.Demo.SwitchBack` |
+| **S2b:** reservation invariants named *leaked* and *double-held*, defined against the registry | `01` §6.1's rule has two halves: the holder must agree it holds its slot (else **leaked**), and a slot has one holder, so an agent's belief must match the registry (else **double-held**: the registry has given the slot, or will give it, to a second agent) |
 | **S2a:** one `ApplyEvent` per copy became `Decide` once (on the oracle) + `ApplyWrite` per copy | Applying the event to each copy would let a stale copy decide differently (an ability "ready" on a copy that missed the last use) and would claim a shared slot twice. Deciding once leaves the hand-off as the only thing that can make the copies differ, which is what the checker must measure |

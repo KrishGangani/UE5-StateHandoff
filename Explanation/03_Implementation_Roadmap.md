@@ -10,7 +10,7 @@
 
 ---
 
-**Progress (2026-11-21):** Phases 1–3 ✅. **Phase 4 ✅** (F1–F4; one queue job, all five checks passed, `09`). **S1 ✅** (code review and simplify done; `09`). **S2a ✅** (10 automation tests pass; code review and simplify done; `09`). Next: **S2b**.
+**Progress (2026-11-21):** Phases 1–3 ✅. **Phase 4 ✅** (F1–F4; one queue job, all five checks passed, `09`). **S1 ✅** (code review and simplify done; `09`). **S2a ✅** (10 automation tests pass; code review and simplify done; `09`). **S2b ✅** (B0 shows incidents, a parked camera shows none; `09`). Next: **S3**. Carried into S3 from S2b (`09`): start the checker's count one frame after `BenchStart`, as the CSV capture does; check whether claim outcomes depend on processing order and, if so, make them independent of it.
 
 **Change to the plan (S2 split, 2026-11-21):** S2 as first written was about 1,500 lines (plugin checker, demo state, Mass integration and the Python tools). It is split into **S2a**, the instrument as plain C++ that tests without a world, and **S2b**, the instrument wired into Mass with the run tools, so each step stays readable in one sitting.
 

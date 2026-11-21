@@ -6,12 +6,6 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(SHMassProcessors)
 
-namespace SHMassProcessors
-{
-	/** Single-player only (01b #12): run in standalone games; Client keeps the engine's own setting for these processors. */
-	constexpr int32 ExecutionFlags = static_cast<int32>(EProcessorExecutionFlags::Client | EProcessorExecutionFlags::Standalone);
-}
-
 //----------------------------------------------------------------------//
 // USHLODCollectorProcessor
 //----------------------------------------------------------------------//

@@ -1,6 +1,6 @@
 # 04 · C++ Fundamentals: StateHandoff
 
-**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1; sections 12–16 in S2a.
+**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1; sections 12–16 in S2a; sections 17–20 in S2b.
 
 ---
 
@@ -133,7 +133,7 @@ FBase& Get(int I) { return const_cast<FBase&>(static_cast<const ThisType&>(*this
 namespace { uint32 Mix(uint32 H) { /* … */ return H; } }   // visible in this .cpp only
 ```
 - Names in an anonymous namespace have internal linkage: no other file can see or clash with them.
-- **In our code:** `SHDemo::Mix` (the event hash).
+- **In our code:** `SHDemo::Mix` (the event hash) and `HomeOf` (the transition helper, S2b).
 
 ## 15. Unsigned arithmetic for hashes
 
@@ -151,3 +151,50 @@ const FSHTestChannel Defaults{};   // every member gets its default member initi
 ```
 - A `const` object must be initialised; `{}` does it explicitly, with the defaults written in the struct.
 - **In our code:** the checker tests.
+
+## 17. Returning a reference from a `switch`
+
+```cpp
+FBase& Get(EKind Kind) {
+    switch (Kind) {
+    case EKind::A: return A;            // a member: lives as long as the object
+    default: check(Kind == EKind::B); return B;
+    }
+}
+```
+- A function that returns a reference must return a real, still-living object on **every** path; there is no "null reference". Hence a `default:` that returns a member and asserts the value was the expected one.
+- Never return a reference to a local or a temporary: it is destroyed when the function returns.
+- **In our code:** `USHAgentStateComponent::Get`, `FSHAgentView::Entity`, `SHRouter::Authoritative`.
+
+## 18. Lambdas and what they capture
+
+```cpp
+const double Now = World.GetTimeSeconds();
+Query.ForEachEntityChunk(Context, [Workload, Now](FMassExecutionContext& Chunk) { /* uses Workload, Now */ });
+```
+- `[Workload, Now]` copies a pointer and a `double` into the lambda. Copies are safe here because the lambda runs before `Execute` returns; capturing by reference (`[&]`) would also work, but listing exactly what is used makes the dependency visible.
+- **In our code:** both workload processors (`05` D5).
+
+## 19. Helper structs, `explicit` constructors and member initialiser lists
+
+```cpp
+struct FViews {
+    TArrayView<FHealth> Health;
+    explicit FViews(FContext& C) : Health(C.GetMutableFragmentView<FHealth>()) {}
+};
+```
+- The initialiser list (`: Health(…)`) builds each member directly, once, before the constructor body runs.
+- `explicit` forbids silent conversions: `FViews V = Context;` doesn't compile, `FViews V(Context);` does.
+- A small struct in an anonymous or named namespace keeps per-chunk setup in one place instead of repeating it in every processor.
+- **In our code:** `SHWorkloadProcessors::FChunkViews`.
+
+## 20. Pointers into arrays that move
+
+```cpp
+TArray<int> A = {1, 2};
+int* P = &A[0];
+A.Add(3);      // may reallocate: P now points at freed memory
+```
+- A pointer to an element stays valid only while the array isn't resized or moved. Mass fragments are elements of chunk arrays, and an entity's fragments move when it changes archetype.
+- So such pointers are built fresh each frame and dropped at the end of the loop: never stored in a member.
+- **In our code:** `FSHAgentView` (`05` D3).

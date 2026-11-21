@@ -104,8 +104,54 @@ python -I -u ue_queue.py run --project P09 --label "P09 Phase 4: …" --timeout 
 |---|---|---|
 | S2a-d | Both builds after the fixes: 0 errors, 0 warnings; the 10 tests pass | ✅ Job `20261121_042452_b8c1e9` (47.9 s): editor `Result: Succeeded` (11.3 s, 8 actions), game `Result: Succeeded` (17.1 s, 5 actions); **0 errors, 0 warnings**. "Found 10 automation tests based on 'StateHandoff'", 10 × `Result={Success}`, "TEST COMPLETE. EXIT CODE: 0"; `Tests.log`: 0 `Warning:`, 0 `Error:` |
 
+## Step S2b · The instrument in the world (2026-11-21)
+
+**Job 1** `20261121_052114_dd421a`: `Tools\s2b_checks.bat`. ❌ **Failed at S2b-1**, exit code 6: `SHMassProcessors.cpp(12,18): error C2374` / `C2086`, `SHMassProcessors::ExecutionFlags` redefined. The review fix that moved the constant into the header (fix 5 below) left the old definition in the `.cpp`: the edit script treated an empty replacement as "already applied". Every other file compiled without a diagnostic. The failure also showed the new step check working: the build's exit code 6 came through as the job's exit code. Fixed by removing the duplicate.
+
+**Job 2** `20261121_061648_b401eb` (211.5 s): the same script, which stops at the first failure. S2b-7 to S2b-9 are small `run_bench.py` batches (one B0 run each, N = 4,000, seed 1, 10 s warm-up, 30 s capture, packaged Development, pinned to `0xFFFF`, read back by `applied_mask()`). They are **functional checks of the instrument, not measurements**.
+
+| # | Check | Result |
+|---|---|---|
+| S2b-1 | Editor build: 0 errors, 0 warnings | ✅ `Result: Succeeded` (13.3 s) |
+| S2b-2 | Game build: 0 errors, 0 warnings | ✅ `Result: Succeeded` (23.6 s, monolithic `StateHandoff.exe`) |
+| S2b-3 | Automation tests `StateHandoff.*` | ✅ "Found 11 automation tests based on 'StateHandoff'" (S2a's 10 plus `StateHandoff.Demo.SwitchBack`), 11 × `Result={Success}`, "TEST COMPLETE. EXIT CODE: 0"; `Tests.log` 0 `Warning:`, 0 `Error:` |
+| S2b-4 | `csv_stats.py --selftest` | ✅ "selftest: OK (percentiles, summary and event parsing match hand-worked values)", flip-window cases included |
+| S2b-5 | Package Development: cook without errors or warnings | ✅ cook "Success - 0 error(s), 0 warning(s)", `BUILD SUCCESSFUL` |
+| S2b-6 | `-SHConfig=SH` (not implemented until S5) is refused: exit code 3, an error, nothing spawned | ✅ `S2b_RefuseSH.log`: `LogSHBench: Error: -SHConfig=SH is not implemented yet.` on frame 0, then `RequestExitWithStatus(1, 3, …)` (forced); the step's exit-code test passed. No entity was spawned (no "Spawned" line) |
+| S2b-7 | **B0 must show incidents** (orbit + flips, checker on). Batch `2026-11-21_070851_s2b_orbit` | ✅ **27,464 incidents in 30,107 transitions (912.2 per 1,000)**, `--expect-incidents some` met. Exit 0, 0 `Error:`, 0 `Warning:` in the game log. Details below |
+| S2b-8 | **No false positives**: camera parked, no flips, checker on: 0 incidents. Batch `2026-11-21_070949_s2b_park` | ✅ **0 transitions, 0 incidents** over 1,801 frames with **196,419 writes applied** and 7,204,000 comparisons per channel (every agent, every frame). Exit 0, 0 `Error:`, 0 `Warning:`. 408 agents held an actor on every captured frame (`SHWorkload/AgentsWithActor` = `MassActors/NumSpawned` = 408 throughout) |
+| S2b-9 | Checker off (timing mode): the run completes with its capture and report. Batch `2026-11-21_071008_s2b_nocheck` | ✅ Exit 0; capture finalised; report written: 30,105 transitions, 0 incidents (none counted: the sweep is off), 196,976 events |
+
+**What the B0 run shows (S2b-7, `…_r1_incidents.csv`).** The checker, not a measurement batch, so one run and no statistics:
+- **Transitions by kind** (capture only): NoneToMesh 12,149 · MeshToNone 9,381 · MeshToActor 3,870 · ActorToNone 2,765 · ActorToMesh 1,110 · ActorSwap 832 · NoneToActor 0.
+- **Incidents by channel and class:** Health lost 6,637 / duplicated 436 / corrupted 47; Cooldown 6,020 / 937 / 18; Memory 6,046 / 897 / 33; Reservation 3,650 / 1,692 / 0; slots leaked 1,047; slots double-held 4.
+- **When:** 27,090 of the 27,464 incidents (98.6%) are on the frame of the agent's latest transition (`frames_since_transition = 0`). By that transition: MeshToActor 13,123 (a new actor starts with default state), ActorToNone 10,691 (the actor is released and the game falls back to the stale entity copy), MeshToNone 3,276 (a kept, disabled actor released), NoneToMesh 374. This is H1's mechanism, and it shows the instrument attributes incidents to transitions; the numbers themselves are for S3's calibrated baseline capture.
+- **Consistency with the CSV:** the report and the CSV's per-frame sums agree on incidents (27,464 both). The CSV has 1,800 rows to the report's 1,801 frames, and 7 fewer transitions and 103 fewer events: the CSV capture starts on the frame **after** `BenchStart` (no `BenchStart` event in the file; `BenchEnd` is in its last row), while the checker counts from the `BenchStart` frame (`05` D7). Recorded, and the checker's start moves one frame later in S3. Three code comments that claimed identical windows were corrected after job 2, and the `ESHDivergence` value comments were moved into the enum's doc comment, because the generated code showed that the header tool had attached the second line of a two-line trailing comment to the next value's metadata (`SHContractTypes.gen.cpp`: `Count.ToolTip`). These are comments only; the code is unchanged.
+- **Observations, not results:** the priming run's FrameTime median was 5.03 ms against 3.76 ms in the measured run (the priming rule at work); the run took 13 s of wall time for 40 s of game time (`-deterministic -FPS=60` advances a fixed 1/60 s per frame, without a frame-rate cap). Events applied differ between the three batches (190,103 · 196,419 · 196,976): every run generates the same events, but the decided writes depend on the oracle, which the correctness run re-syncs, and claims depend on which slots are free when an agent is reached, so possibly on chunk order **[inferred]**. To check in S3 before the baselines: whether claim outcomes depend on processing order, and if so, make them independent of it.
+
+**Audit trail for S2b:**
+- `code-review` (medium, Skill tool, on the staged diff, **before** the build, so one queue job verifies the fixed code): **7 findings, 1 important and 6 nits**; the reviewer also checked the tick order, FrameEnd in `TG_LastDemotable`, the `Representation` group name, the iterator-to-index conversion and the default execution flags against the engine source. All fixed:
+  1. *important:* versions were per-copy counters, and the re-sync copied one copy's counter into the oracle; after a switch back to the other copy, a stale entity copy was classified *duplicated* → `Version` is now the write's sequence number, one numbering per agent and channel (`FSHAgentState::Issued`, outside the channel structs), stamped by `ApplyWrite`; new test `StateHandoff.Demo.SwitchBack`; `02` §14 records the change (this touches S2a's code, with its docs: `05` C1, C5, C6);
+  2. an unimplemented configuration was refused only after N entities were spawned → refused in `ValidateRunSettings`, before spawning;
+  3. reservation incidents had no transition → `LastObserved` per agent; one `AddIncident` for every incident;
+  4. the `ESHEventPoint` comment still said actor events need an actor → corrected;
+  5. the workload processors kept the default `Server | Standalone` flags while the representation processors use `Client | Standalone` → one shared constant, moved to `SHMassProcessors.h`;
+  6. the report's frames and events counted the whole run, and counting stopped one frame before the CSV capture ends → capture-only counts; counting stops on the frame after `BenchEnd`;
+  7. an agent that never changed representation showed the whole run as "frames since transition" → empty field.
+- `simplify`: applied by hand (the skill starts sub-agents, which this project's brief doesn't allow). Changes: the reservation incidents now share `AddIncident` (fix 3). Reviewed and not changed: the three four-way `switch`es from `ESHChannel` to a member (`FSHAgentState`, `USHAgentStateComponent`, `FSHAgentView`: different owner types, and a template would hide the `check`); `FindComponentByClass` per agent per pass (about two lookups per agent with an actor per frame, on a two-component actor; S4's hand-off caches the component per binding); `IsImplemented` checked by both the director and `BeginRun` (the second is a cheap guard for any other caller).
+- **Batch exit codes (coordinator, AGENT_BRIEF rule 12, found by UE5-NavReadyPCG).** `phase4_checks.bat` and the new `s2b_checks.bat` used `call step.bat || exit /b N`, which can exit with 0 after a failure under `cmd /c`. Both now test `if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%` after every step, and the director's failing exits are forced (`RequestExitWithStatus(true, 3, …)`), because a normal exit loses the code on Windows (`WindowsPlatformMisc.cpp:1493–1521`). **Every earlier P09 result was re-checked from each step's own log line, not from a job's exit code: no false pass.**
+
+  | Job | Step evidence in its own log |
+  |---|---|
+  | Phase 4 `20261121_015107_038d98` | F-1 and F-2 `Result: Succeeded`; F-3 `SmokeGame.log` ends with `RequestExit(0)`, `LogExit: Exiting.`, 0 `Error:`; F-4 cook "Success - 0 error(s), 0 warning(s)", `BUILD SUCCESSFUL`, `AutomationTool exiting with ExitCode=0`; F-5 `SmokePackaged.log` ends the same way as F-3 |
+  | S1 `20261121_030815_421625` | `Result: Succeeded` (the build with the four C4996 warnings, as recorded in S1-a); `S1_seed7_a/b.log`, `S1_seed8.log`: `RequestExit(0, USHBenchmarkSubsystem)`, `LogExit: Exiting.`, 0 `Error:` |
+  | S1 `20261121_032455_ee5079` | Editor, game and the package's own build: 3 × `Result: Succeeded`; `BUILD SUCCESSFUL`; `S1_packaged.log` ends with `RequestExit(0, …)`, 0 `Error:` |
+  | S2a `20261121_035727_39b841`, `20261121_042452_b8c1e9` | 2 × `Result: Succeeded` each; `Tests.log` "TEST COMPLETE. EXIT CODE: 0", 10 × `Result={Success}` |
+
+  (The "fatal" and "crash" words in those logs are the crash reporter's start-up lines, `Session CrashGUID` and "Custom abort handler registered", not failures.)
+
 ---
 
 ## Benchmark batches
 
-*(pending)*. The first batch is the S3 baseline capture, recorded here with its batch name, as in [Benchmarks/README.md](../Benchmarks/README.md).
+*(pending)*. The first measurement batch is the S3 baseline capture, recorded here with its batch name, as in [Benchmarks/README.md](../Benchmarks/README.md). The three S2b batches (`s2b_orbit`, `s2b_park`, `s2b_nocheck`) are functional checks, recorded in the S2b table above.

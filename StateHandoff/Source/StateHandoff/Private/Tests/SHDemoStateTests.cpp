@@ -12,6 +12,9 @@ namespace SHDemoTests
 	/** Editor and game contexts; one filter (ProductFilter), as the macro requires (AutomationTest.h:4126-4133). */
 	constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter;
 
+	/** The classification as an integer: TestEqual has no overload for an enum class. */
+	int32 AsInt(const ESHDivergence Result) { return static_cast<int32>(Result); }
+
 	/** Decides an event of one type for agent 0 and applies the write to the expected state, as the workload does. */
 	FSHWrite Run(FSHAgentState& Expected, ESHEventType Type, double Now, FSHSlotRegistry& Registry, float Amount = 10.f, int32 Ability = 0, uint32 Salt = 0)
 	{
@@ -150,6 +153,32 @@ bool FSHDemoCopiesAgreeTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("same writes: identical copies"), Differences, 0);
 	TestEqual(TEXT("missed writes: every channel Lost"), Lost, static_cast<int32>(ESHChannel::Count));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSHDemoSwitchBackTest, "StateHandoff.Demo.SwitchBack", SHDemoTests::Flags)
+bool FSHDemoSwitchBackTest::RunTest(const FString& Parameters)
+{
+	// B0's case from the S2b code review: the game reads the entity's copy, then a fresh actor's, then the entity's again.
+	// With one numbering per agent and channel, the stale copy is Lost both times, never Duplicated.
+	const UScriptStruct& Type = *FSHHealthState::StaticStruct();
+	FSHSlotRegistry Registry;
+	FSHAgentState Expected;
+	FSHHealthState Entity;
+	FSHHealthState Actor; // a fresh actor: defaults, version 0
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		const FSHWrite Write = SHDemoTests::Run(Expected, ESHEventType::Damage, 1.0, Registry, 5.f);
+		SHDemo::ApplyWrite(Entity, Write);
+	}
+	TestEqual(TEXT("fresh actor: Lost"), SHDemoTests::AsInt(FSHInvariantChecker::Classify(Type, Expected.Health, Actor)), SHDemoTests::AsInt(ESHDivergence::Lost));
+	Type.CopyScriptStruct(&Expected.Health, &Actor); // the workload's re-sync: expect what the game now sees
+
+	const FSHWrite Write = SHDemoTests::Run(Expected, ESHEventType::Damage, 2.0, Registry, 5.f);
+	SHDemo::ApplyWrite(Actor, Write);
+	TestEqual(TEXT("actor copy after one write: None"), SHDemoTests::AsInt(FSHInvariantChecker::Classify(Type, Expected.Health, Actor)), SHDemoTests::AsInt(ESHDivergence::None));
+	TestEqual(TEXT("numbering survives the re-sync"), static_cast<int32>(Write.Version), 4);
+	TestEqual(TEXT("back to the stale entity copy: Lost"), SHDemoTests::AsInt(FSHInvariantChecker::Classify(Type, Expected.Health, Entity)), SHDemoTests::AsInt(ESHDivergence::Lost));
 	return true;
 }
 

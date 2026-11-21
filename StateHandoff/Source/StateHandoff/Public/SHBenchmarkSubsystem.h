@@ -3,10 +3,12 @@
 #pragma once
 
 #include "Mass/EntityHandle.h"
+#include "SHDemoTypes.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "SHBenchmarkSubsystem.generated.h"
 
 class ACameraActor;
+class USHWorkloadSubsystem;
 class UMassEntityConfigAsset;
 
 /**
@@ -36,6 +38,10 @@ class UMassEntityConfigAsset;
  *   -SHRunTag=NAME   CSV metadata tag (default "run")
  *   -SHExit          quit when the run is finished
  *   -SHLogCounts     also log representation counts at every flip (functional checks; costs time on captured frames)
+ *   -SHConfig=ID     B0 | B1 | B2 | B3 | SH (default B0; S2b implements B0)
+ *   -SHEventRate=P   probability per agent, per event point, per frame (default 0.02)
+ *   -SHCheck=0|1     run the checker's sweep (default 1; timing runs pass 0)
+ *   -SHParked        the camera holds its first position: no orbit and no flips (steady state: no transitions)
  */
 UCLASS()
 class USHBenchmarkSubsystem : public UTickableWorldSubsystem
@@ -47,9 +53,6 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 	//~ End FTickableGameObject
-
-	/** The spawned entities, in spawn order: Agents[i] has FSHAgentIdFragment::AgentIndex == i. Empty until frame 1. */
-	const TArray<FMassEntityHandle>& GetAgents() const { return Agents; }
 
 protected:
 	//~ Begin UWorldSubsystem
@@ -69,6 +72,11 @@ private:
 		FString RunTag = TEXT("run");
 		bool bExitWhenDone = false;
 		bool bLogCounts = false;
+		ESHConfig Config = ESHConfig::B0;
+		bool bConfigValid = true;
+		float EventRate = 0.02f;
+		bool bCheck = true;
+		bool bParked = false;
 	};
 
 	enum class ERunPhase : uint8
@@ -122,6 +130,10 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<ACameraActor> Camera;
+
+	/** The workload and checker of this world; set when the run starts (a world subsystem lives as long as the world). */
+	UPROPERTY(Transient)
+	TObjectPtr<USHWorkloadSubsystem> Workload;
 
 	TArray<FMassEntityHandle> Agents;
 };

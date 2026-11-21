@@ -6,11 +6,12 @@
 #include "SHDemoAgent.generated.h"
 
 class UStaticMeshComponent;
+class USHAgentStateComponent;
 
 /**
  * The actor representation of one demo agent: Mass spawns it (high and low resolution use this same class) and
- * releases it again as the agent's LOD changes. S1: a mesh only. S2 adds the actor-side state component; S3 adds
- * pooling and the lifecycle baseline's component.
+ * releases it again as the agent's LOD changes. A mesh and the actor-side state component (S2b); S3 adds pooling and
+ * the lifecycle baseline's component.
  */
 UCLASS()
 class ASHDemoAgent : public AActor
@@ -24,4 +25,8 @@ private:
 	/** A cylinder, so actors are easy to tell from the instanced cubes in screenshots. No collision: nothing collides. */
 	UPROPERTY(VisibleAnywhere, Category = "StateHandoff")
 	TObjectPtr<UStaticMeshComponent> Mesh;
+
+	/** The actor's copy of the agent's state (the demo's actor-side system). */
+	UPROPERTY(VisibleAnywhere, Category = "StateHandoff")
+	TObjectPtr<USHAgentStateComponent> State;
 };

@@ -2,7 +2,7 @@
 
 Every number in this project's write-up must trace back to a file in this folder. The method is in [../Explanation/01_Problem_Analysis.md §7](../Explanation/01_Problem_Analysis.md); the planned matrices are in [../Explanation/03_Implementation_Roadmap.md](../Explanation/03_Implementation_Roadmap.md). The results, batch by batch, go into [../Explanation/09_Testing_And_Benchmarks.md](../Explanation/09_Testing_And_Benchmarks.md).
 
-**Status (2026-11-21): no batch has run yet.** The first batch is the baseline capture in step S3, before any hand-off code exists.
+**Status (2026-11-21): only the S2b functional-check batches have run** (`s2b_orbit`, `s2b_park`, `s2b_nocheck`: one B0 run each, to prove the instrument; not measurements). The first measurement batch is the baseline capture in step S3, before any hand-off code exists.
 
 ## Measurement rules
 
@@ -53,4 +53,6 @@ Warm-up excluded:  10 s     Capture length: 60 s     Runs per combination: numbe
 
 | Batch | Configs | N | Runs | Purpose | Summary |
 |---|---|---|---|---|---|
-| — | — | — | — | No batch yet (first: the S3 baseline capture) | — |
+| `2026-11-21_070851_s2b_orbit` | B0 | 4,000 | 1 + prime | S2b-7 functional check: B0 must show incidents (orbit + flips, checker on). Not a measurement | [summary](Summaries/2026-11-21_070851_s2b_orbit_summary.md) |
+| `2026-11-21_070949_s2b_park` | B0 | 4,000 | 1 | S2b-8 functional check: camera parked, 0 incidents expected. Not a measurement | [summary](Summaries/2026-11-21_070949_s2b_park_summary.md) |
+| `2026-11-21_071008_s2b_nocheck` | B0 | 4,000 | 1 | S2b-9 functional check: checker off (timing mode) runs end to end. Not a measurement | [summary](Summaries/2026-11-21_071008_s2b_nocheck_summary.md) |

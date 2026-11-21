@@ -7,6 +7,16 @@
 #include "MassVisualizationLODProcessor.h"
 #include "SHMassProcessors.generated.h"
 
+namespace SHMassProcessors
+{
+	/**
+	 * Single-player only (01b #12): run in standalone games; Client keeps the engine's own setting for the representation
+	 * processors. Every processor of this project that sets flags uses this one constant, so the workload and the checker
+	 * always run exactly where representation switching runs.
+	 */
+	constexpr int32 ExecutionFlags = static_cast<int32>(EProcessorExecutionFlags::Client | EProcessorExecutionFlags::Standalone);
+}
+
 /*
  * The engine's LOD collector, visualization-LOD and visualization processors are not auto-registered
  * (MassLODCollectorProcessor.cpp:14, MassVisualizationLODProcessor.cpp:13, MassRepresentationProcessor.cpp:54).
