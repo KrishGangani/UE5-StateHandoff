@@ -29,3 +29,6 @@ Benchmarks/*_console.txt
 
 # Parked drafts (code or docs not yet in the tree); never committed.
 _wip/
+
+# Portfolio export for sharing (images, description, demo video); not part of the repository.
+Portfolio/
