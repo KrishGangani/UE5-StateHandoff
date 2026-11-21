@@ -11,11 +11,12 @@ public class StateHandoff : ModuleRules
 
 		// Public: the module's public headers derive from or include these modules' types
 		// (fragments and tags: MassEntity; entity handles: MassCore; traits: MassSpawner; processors: MassLOD, MassRepresentation).
-		// StateHandoffCore too: SHDemoState.h (a public header) derives from the plugin's FSHChannelFragment.
+		// StateHandoffCore too: SHDemoState.h (a public header) derives from the plugin's FSHChannelFragment. MassActors
+		// since S3a: SHDemoAgent.h (public) implements MassActors' IMassActorPoolableInterface.
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine",
-			"MassEntity", "MassCore", "MassSpawner", "MassLOD", "MassRepresentation", "StateHandoffCore" });
+			"MassEntity", "MassCore", "MassSpawner", "MassLOD", "MassRepresentation", "MassActors", "StateHandoffCore" });
 
-		// Private: only .cpp files use them (FMassActorFragment; the Behavior processor group name).
-		PrivateDependencyModuleNames.AddRange(new string[] { "MassActors", "MassCommon" });
+		// Private: only .cpp files use it (the Behavior and SyncWorldToMass processor group names).
+		PrivateDependencyModuleNames.AddRange(new string[] { "MassCommon" });
 	}
 }

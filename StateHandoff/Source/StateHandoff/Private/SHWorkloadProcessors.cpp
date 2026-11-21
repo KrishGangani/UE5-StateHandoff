@@ -10,6 +10,7 @@
 #include "MassRepresentationTypes.h"
 #include "SHAgentStateComponent.h"
 #include "SHDemoTypes.h"
+#include "SHLifecycleComponent.h"
 #include "SHMassProcessors.h"
 #include "SHStateRouter.h"
 #include "SHWorkloadSubsystem.h"
@@ -60,7 +61,9 @@ namespace SHWorkloadProcessors
 			View.Reservation = &Reservation[Index];
 			if (AActor* Actor = Actors[Index].GetMutable())
 			{
+				// Both lookups in every configuration, so every configuration pays the same per-agent cost.
 				View.ActorState = Actor->FindComponentByClass<USHAgentStateComponent>();
+				View.Lifecycle = Actor->FindComponentByClass<USHLifecycleComponent>();
 			}
 			return View;
 		}

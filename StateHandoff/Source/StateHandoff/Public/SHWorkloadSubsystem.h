@@ -37,22 +37,43 @@ public:
 		float EventRate = 0.02f;
 		/** Run the sweep (correctness runs) or not (timing runs). Events and transition counts run either way. */
 		bool bCheck = true;
+		/** Whether demo actors may go into Mass's pool (ASHDemoAgent::CanBePooled). */
+		bool bPooling = false;
+		/** bKeepLowResActors, for the report only (the director sets it on the visualization trait). */
+		bool bKeepLowRes = true;
 		FString RunTag;
 	};
 
 	/** Starts the workload for NumAgents agents. Returns false (and logs why) if the configuration isn't usable. */
 	bool BeginRun(const FRunConfig& InRun, int32 NumAgents);
 
-	/** Counts only inside the capture window: the director switches it on at BenchStart and off on the frame after
-	 *  BenchEnd: BenchStart to BenchEnd inclusive (the CSV capture starts one frame later, 09 S2b). */
-	void SetCapturing(bool bInCapturing) { bCapturing = bInCapturing; }
+	/**
+	 * Counts only inside the capture window. The director asks on the BenchStart frame (on) and the BenchEnd frame (off);
+	 * the switch takes effect at the next BeginFrame, the start of the next frame's simulation phase, so every counter
+	 * covers whole frames: from the frame after BenchStart to the BenchEnd frame, the frames the CSV capture holds
+	 * (-csvStartOnEvent starts the capture after the event's frame, 09 S2b-7; -csvStopOnEvent ends it with its frame).
+	 */
+	void RequestCapturing(bool bInCapturing) { bPendingCapturing = bInCapturing; }
+
+	/** A baseline copied one agent's state (B1 hydrate or dehydrate, B2 push on spawn): counted per frame (CSV) and over
+	 *  the capture (report), so every run shows that its baseline's path actually ran. */
+	void NoteBaselineCopy()
+	{
+		++FrameCounts.BaselineCopies;
+		BaselineCopies += bCapturing ? 1 : 0;
+	}
 
 	bool IsRunning() const { return bRunning; }
 	ESHConfig GetConfig() const { return Run.Config; }
 	bool IsCheckEnabled() const { return Run.bCheck; }
+	bool IsPoolingEnabled() const { return bRunning && Run.bPooling; }
 
 	/** Starts a new run frame. Called once per frame, first, by the simulation-event processor. */
-	void BeginFrame() { ++Frame; }
+	void BeginFrame()
+	{
+		++Frame;
+		bCapturing = bPendingCapturing;
+	}
 
 	/** Makes this agent's event for this point and frame, if any, decides it on the oracle and applies the write to
 	 *  both the oracle and the copy the configuration treats as real. */
@@ -99,6 +120,7 @@ private:
 		int32 Transitions = 0;
 		int32 Incidents = 0;
 		int32 AgentsWithActor = 0;
+		int32 BaselineCopies = 0;
 	};
 
 	/** Records one incident (capture only), with the agent's latest transition from LastObserved. */
@@ -107,6 +129,7 @@ private:
 	FRunConfig Run;
 	bool bRunning = false;
 	bool bCapturing = false;
+	bool bPendingCapturing = false;
 	uint32 Frame = 0;
 
 	TArray<FSHAgentState> Expected;
@@ -125,6 +148,7 @@ private:
 	int64 LeakedSlots = 0;
 	int64 DoubleHeldSlots = 0;
 	int64 EventsApplied = 0;
+	int64 BaselineCopies = 0;
 	uint32 CapturedFrames = 0;
 
 	FFrameCounts FrameCounts;

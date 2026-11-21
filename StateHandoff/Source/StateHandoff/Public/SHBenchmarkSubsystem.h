@@ -38,10 +38,12 @@ class UMassEntityConfigAsset;
  *   -SHRunTag=NAME   CSV metadata tag (default "run")
  *   -SHExit          quit when the run is finished
  *   -SHLogCounts     also log representation counts at every flip (functional checks; costs time on captured frames)
- *   -SHConfig=ID     B0 | B1 | B2 | B3 | SH (default B0; S2b implements B0)
+ *   -SHConfig=ID     B0 | B1 | B2 | B3 | SH (default B0; SH is refused until S5)
  *   -SHEventRate=P   probability per agent, per event point, per frame (default 0.02)
  *   -SHCheck=0|1     run the checker's sweep (default 1; timing runs pass 0)
  *   -SHParked        the camera holds its first position: no orbit and no flips (steady state: no transitions)
+ *   -SHPooling=0|1   demo actors may go into Mass's actor pool (default 0)
+ *   -SHKeepLowRes=0|1 the engine keeps a disabled actor while the entity is an instanced mesh (default 1, the engine's)
  */
 UCLASS()
 class USHBenchmarkSubsystem : public UTickableWorldSubsystem
@@ -77,6 +79,8 @@ private:
 		float EventRate = 0.02f;
 		bool bCheck = true;
 		bool bParked = false;
+		bool bPooling = false;
+		bool bKeepLowRes = true;
 	};
 
 	enum class ERunPhase : uint8

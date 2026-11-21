@@ -6,6 +6,7 @@
 #include "SHDemoTypes.h"
 
 class USHAgentStateComponent;
+class USHLifecycleComponent;
 
 /**
  * Everything needed to find one agent's state this frame: its entity copies (fragments) and, if the entity has an
@@ -22,6 +23,9 @@ struct FSHAgentView
 	/** The actor's state component, or null when the entity has no actor (or the actor has no such component). */
 	USHAgentStateComponent* ActorState = nullptr;
 
+	/** The actor's B1 lifecycle component (null without an actor). Read only by the B1 rule. */
+	const USHLifecycleComponent* Lifecycle = nullptr;
+
 	/** The entity's copy of one channel. */
 	FSHChannelFragment& Entity(ESHChannel Channel) const;
 };
@@ -31,12 +35,13 @@ namespace SHRouter
 	/**
 	 * The copy that this configuration's gameplay reads and writes (02 section 9). The checker reads through the same
 	 * function, so it judges what each configuration's game would actually see.
-	 *   B0: the actor's copy if the entity has an actor (even a disabled one), else the entity's.
-	 *   B1-B3 (S3) and SH (S5) are added with their implementations; until then they use the B0 rule, and the
-	 *   workload subsystem refuses to start them.
+	 *   B0, B2: the actor's copy if the entity has an actor (even a disabled one), else the entity's.
+	 *   B1:     the actor's copy if its lifecycle component has hydrated it, else the entity's.
+	 *   B3:     always the entity's (entity-owned state; the actor's copy is never used).
+	 *   SH (S5) is added with its implementation; until then it uses the B0 rule, and the run refuses to start it.
 	 */
 	FSHChannelFragment& Authoritative(ESHConfig Config, ESHChannel Channel, const FSHAgentView& View);
 
-	/** True once a configuration's rule is implemented (S2: B0 only). */
+	/** True once a configuration's rule is implemented (S3a: B0 to B3). */
 	bool IsImplemented(ESHConfig Config);
 }

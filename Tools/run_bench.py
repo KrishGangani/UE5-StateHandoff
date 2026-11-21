@@ -4,7 +4,8 @@ Adapted from UE5-UpdateBudget's Tools/run_bench.py on 2026-11-21 (copied, so thi
 
 Usage (from anywhere):
     python -I run_bench.py --configs B0,SH --agents 4000 [--runs N] [--capture 60] [--warmup 10] [--flip-every 4]
-                           [--event-rate 0.02] [--check 1] [--parked] [--label NAME] [--extra "-SHPooling=1"]
+                           [--event-rate 0.02] [--check 1] [--pooling 0|1] [--keep-low-res 0|1] [--parked]
+                           [--label NAME] [--extra "..."]
                            [--no-prime] [--dry-run] [--expect-incidents some|none]
 
 What one batch does:
@@ -18,7 +19,7 @@ What one batch does:
   5. Starts the REAL game executable with subprocess.Popen (never `cmd /c start`, which always returns 0), waits with
      a timeout, and kills its process tree in a `finally` block. Deletes GameUserSettings.ini before each run.
   6. Moves the CSV capture, the checker's incident report and the run's log into Benchmarks/Raw as
-     <batch>_<Config>_N<agents>_P<pooling>[_park]_r<run>.<ext> (Benchmarks/README.md, file naming), <batch> =
+     <batch>_<Config>_N<agents>_P<pooling>[_K0][_park]_r<run>.<ext> (Benchmarks/README.md, file naming), <batch> =
      YYYY-MM-DD_HHMMSS[_label]. Never overwrites. The manifest is
      rewritten after every run, so a crash loses nothing.
   7. Writes Benchmarks/Summaries/<batch>_summary.md: per combination, the median across runs of each run's
@@ -56,16 +57,14 @@ SUMMARY_DIR = os.path.join(PROJECT_DIR, "Benchmarks", "Summaries")
 ENGINE_BUILD_VERSION = r"C:\Program Files\Epic Games\UE_5.8\Engine\Build\Build.version"
 STARTUP_MARGIN_SECONDS = 180.0  # generous allowance for engine start, spawning and shutdown before a run is declared hung
 FLIP_WINDOW_FRAMES = 60         # the frames after each BenchFlip that form a flip window (01 section 6.3)
-# Actor pooling: always off until S3. The engine pools only actors that implement IMassActorPoolableInterface
-# (MassActorSpawnerSubsystem.cpp:126-127) and the demo actor doesn't yet; S3 adds the interface and a --pooling switch.
-POOLING = 0
 
 COMMON_ARGS = ("-windowed -ResX=1280 -ResY=720 -nosound -unattended -traceautostart=0 "
                "-deterministic -FPS=60 -novsync -SHExit -csvStartOnEvent=BenchStart -csvStopOnEvent=BenchEnd")
 
 CONFIGS = ("B0", "B1", "B2", "B3", "SH")   # 01 section 6.2; the game reads -SHConfig=
 SUMMARY_COLUMNS = ("FrameTime", "GameThreadTime", "SHWorkload/Transitions", "SHWorkload/Incidents",
-                   "SHWorkload/AgentsWithActor", "MassActors/NumSpawned")
+                   "SHWorkload/AgentsWithActor", "SHWorkload/BaselineCopies", "MassActors/NumSpawned")
+COPYING_BASELINES = ("B1", "B2")   # their own copies (hydrate/dehydrate, push) must happen in every run
 
 
 def powershell(command: str) -> str:
@@ -105,7 +104,7 @@ def launch(name: str, config: str, agents: int, args) -> tuple[str, int | None, 
     """Starts one run and waits for it. Returns (command, exit code or None on timeout, start time, wall seconds)."""
     sh_args = (f"-SHConfig={config} -SHAgents={agents} -SHSeed={args.seed} -SHWarmup={args.warmup} "
                f"-SHCapture={args.capture} -SHFlipEvery={args.flip_every} -SHEventRate={args.event_rate} "
-               f"-SHCheck={args.check} -SHRunTag={name}")
+               f"-SHCheck={args.check} -SHPooling={args.pooling} -SHKeepLowRes={args.keep_low_res} -SHRunTag={name}")
     command = f'"{EXE}" {COMMON_ARGS} {sh_args} {args.extra}'.strip()
     if args.dry_run:
         print("DRY:", command)
@@ -180,9 +179,11 @@ def collect(name: str, started: float) -> dict:
 
 
 def is_failure(record: dict) -> bool:
+    baseline_idle = (record.get("config") in COPYING_BASELINES
+                     and int(record.get("checker", {}).get("baselinecopies", "0")) == 0)
     return (record.get("exit_code") != 0 or "stats" not in record or record.get("log_errors")
             or record.get("log_missing") or record.get("finalised") is False or "analysis_error" in record
-            or "checker" not in record)
+            or "checker" not in record or baseline_idle)
 
 
 def write_manifest(batch: str, environment: dict, records: list[dict]) -> None:
@@ -210,7 +211,7 @@ def write_summary(batch: str, environment: dict, records: list[dict]) -> str:
              f"{FLIP_WINDOW_FRAMES} frames from each BenchFlip, pooled per run. Incidents per 1,000 transitions: from the "
              "checker's report of each run (0 when the checker is off).", ""]
     header = ("| Config | N | Runs | FrameTime median / p95 / p99 (ms) | GameThreadTime median / p95 / p99 (ms) "
-              "| Flip windows: FrameTime p99 / max (ms) | Transitions per run | Incidents per 1,000 | Log errors |")
+              "| Flip windows: FrameTime p99 / max (ms) | Transitions per run | Incidents per 1,000 | Baseline copies per run | Log errors |")
     lines += [header, "|" + "---|" * (header.count("|") - 1)]
     for (config, agents), group in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         cells = []
@@ -221,9 +222,11 @@ def write_summary(batch: str, environment: dict, records: list[dict]) -> str:
         flip_max = [g["flip_windows"]["columns"]["FrameTime"]["max"] for g in group if "FrameTime" in g.get("flip_windows", {}).get("columns", {})]
         transitions = [float(g["checker"].get("transitions", "nan")) for g in group if "checker" in g]
         per_thousand = [float(g["checker"].get("per1000", "nan")) for g in group if "checker" in g]
+        copies = [float(g["checker"].get("baselinecopies", "nan")) for g in group if "checker" in g]
         errors = sum(g.get("log_errors", 0) for g in group)
         lines.append(f"| {config} | {agents} | {len(group)} | " + " | ".join(cells)
-                     + f" | {median_range(flip_p99)} / {median_range(flip_max)} | {median_range(transitions, 0)} | {median_range(per_thousand, 4)} | {errors} |")
+                     + f" | {median_range(flip_p99)} / {median_range(flip_max)} | {median_range(transitions, 0)} | {median_range(per_thousand, 4)}"
+                     + f" | {median_range(copies, 0)} | {errors} |")
     lines += ["", f"Raw files: `Benchmarks/Raw/{batch}_*` (CSV, incident report and log per run) and `{batch}_manifest.json`."]
     path = os.path.join(SUMMARY_DIR, batch + "_summary.md")
     with open(path, "w", encoding="utf-8") as handle:
@@ -243,6 +246,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--check", type=int, choices=(0, 1), default=1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--parked", action="store_true", help="camera parked: no orbit, no flips (-SHParked)")
+    parser.add_argument("--pooling", type=int, choices=(0, 1), default=0, help="Mass actor pooling for the demo actors")
+    parser.add_argument("--keep-low-res", type=int, choices=(0, 1), default=1,
+                        help="bKeepLowResActors (1 = the engine's default; 0 = the H2 variant, named _K0)")
     parser.add_argument("--extra", default="", help="extra game arguments, the same for every run")
     parser.add_argument("--cooldown", type=float, default=5.0)
     parser.add_argument("--label", default="")
@@ -281,7 +287,8 @@ def main(argv: list[str]) -> int:
     records: list[dict] = []
 
     def run(config: str, agents: int, run_index: int, priming: bool = False) -> None:
-        name = f"{batch}_{config}_N{agents}_P{POOLING}" + ("_park" if args.parked else "") + f"_r{run_index}" + ("_prime" if priming else "")
+        name = (f"{batch}_{config}_N{agents}_P{args.pooling}" + ("_K0" if not args.keep_low_res else "")
+                + ("_park" if args.parked else "") + f"_r{run_index}" + ("_prime" if priming else ""))
         command, exit_code, started, wall = launch(name, config, agents, args)
         record = {"name": name, "config": config, "agents": agents, "run": run_index, "priming": priming,
                   "exit_code": exit_code, "wall_seconds": round(wall, 1), "command": command}
@@ -312,7 +319,8 @@ def main(argv: list[str]) -> int:
     print("summary:", write_summary(batch, environment, records))
     failures = [r["name"] for r in records if not r.get("priming") and is_failure(r)]
     if failures:
-        print("ATTENTION - runs with a non-zero exit, timeout, no/partial capture, missing report or log, or log errors:", failures)
+        print("ATTENTION - runs with a non-zero exit, timeout, no/partial capture, missing report or log, log errors,"
+              " or a B1/B2 baseline that made no copies:", failures)
         return 1
     if args.expect_incidents:
         wrong = [r["name"] for r in records if not r.get("priming")

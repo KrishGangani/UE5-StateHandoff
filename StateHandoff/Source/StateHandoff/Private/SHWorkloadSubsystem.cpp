@@ -197,6 +197,7 @@ void USHWorkloadSubsystem::EndFrame()
 	CSV_CUSTOM_STAT(SHWorkload, Transitions, FrameCounts.Transitions, ECsvCustomStatOp::Set);
 	CSV_CUSTOM_STAT(SHWorkload, Incidents, FrameCounts.Incidents, ECsvCustomStatOp::Set);
 	CSV_CUSTOM_STAT(SHWorkload, AgentsWithActor, FrameCounts.AgentsWithActor, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(SHWorkload, BaselineCopies, FrameCounts.BaselineCopies, ECsvCustomStatOp::Set);
 	FrameCounts = FFrameCounts();
 }
 
@@ -215,15 +216,16 @@ void USHWorkloadSubsystem::WriteReport() const
 	const int64 AllIncidents = ChannelIncidents + LeakedSlots + DoubleHeldSlots;
 	const double PerThousand = Transitions > 0 ? 1000.0 * static_cast<double>(AllIncidents) / static_cast<double>(Transitions) : 0.0;
 
-	// Every count below covers the capture window only (SetCapturing): BenchStart to BenchEnd inclusive.
-	FString Report = FString::Printf(TEXT("# run=%s config=%s seed=%u eventrate=%.4f check=%d frames=%u events=%lld\n"),
-		*Run.RunTag, SHDemo::GetConfigName(Run.Config), Run.Seed, Run.EventRate, Run.bCheck ? 1 : 0, CapturedFrames, EventsApplied);
+	// Every count below covers the capture window only (SetCapturing): the frames the CSV capture holds.
+	FString Report = FString::Printf(TEXT("# run=%s config=%s seed=%u eventrate=%.4f check=%d pooling=%d keeplowres=%d frames=%u events=%lld\n"),
+		*Run.RunTag, SHDemo::GetConfigName(Run.Config), Run.Seed, Run.EventRate, Run.bCheck ? 1 : 0, Run.bPooling ? 1 : 0,
+		Run.bKeepLowRes ? 1 : 0, CapturedFrames, EventsApplied);
 	Report += FString::Printf(TEXT("# transitions=%lld"), Transitions);
 	for (int32 Kind = 0; Kind < static_cast<int32>(ESHTransitionKind::Count); ++Kind)
 	{
 		Report += FString::Printf(TEXT(" %s=%lld"), SHDemo::GetTransitionName(static_cast<ESHTransitionKind>(Kind)), TransitionCounts[Kind]);
 	}
-	Report += FString::Printf(TEXT("\n# incidents=%lld per1000=%.4f slotleaked=%lld slotdoubleheld=%lld"), AllIncidents, PerThousand, LeakedSlots, DoubleHeldSlots);
+	Report += FString::Printf(TEXT("\n# incidents=%lld per1000=%.4f slotleaked=%lld slotdoubleheld=%lld baselinecopies=%lld"), AllIncidents, PerThousand, LeakedSlots, DoubleHeldSlots, BaselineCopies);
 	for (int32 Index = 0; Index < static_cast<int32>(ESHChannel::Count); ++Index)
 	{
 		const FSHInvariantChecker& Checker = Checkers[Index];

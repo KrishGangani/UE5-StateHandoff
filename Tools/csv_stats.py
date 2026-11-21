@@ -39,6 +39,7 @@ DEFAULT_COLUMNS = (
     "SHWorkload/Transitions",
     "SHWorkload/Incidents",
     "SHWorkload/AgentsWithActor",
+    "SHWorkload/BaselineCopies",
     "MassActors/NumSpawned",
 )
 

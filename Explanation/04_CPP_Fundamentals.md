@@ -1,6 +1,6 @@
 # 04 · C++ Fundamentals: StateHandoff
 
-**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1; sections 12–16 in S2a; sections 17–20 in S2b.
+**Rule:** only the C++ ideas this project's code actually relies on, each with a tiny example first and then where it appears in our code. This file grows with every step. Sections 1–4 cover Phase 4; sections 5–11 were added in S1; sections 12–16 in S2a; sections 17–20 in S2b; sections 21–22 in S3a.
 
 ---
 
@@ -198,3 +198,23 @@ A.Add(3);      // may reallocate: P now points at freed memory
 - A pointer to an element stays valid only while the array isn't resized or moved. Mass fragments are elements of chunk arrays, and an entity's fragments move when it changes archetype.
 - So such pointers are built fresh each frame and dropped at the end of the loop: never stored in a member.
 - **In our code:** `FSHAgentView` (`05` D3).
+
+## 21. A class with a base class and an interface
+
+```cpp
+class AMyActor : public AActor, public IMyInterface   // one real base class, plus any number of interfaces
+{
+    virtual bool CanDoIt_Implementation() override;   // the interface's virtual function
+};
+```
+- Unreal classes have exactly one `UObject` base (`AActor` here); interfaces add a second, data-free base whose virtual functions the class overrides.
+- **In our code:** `ASHDemoAgent : AActor, IMassActorPoolableInterface` (`05` E4).
+
+## 22. `friend` for a test
+
+```cpp
+class FCounter { int Value = 0; friend struct FCounterTestAccess; };
+struct FCounterTestAccess { static void Set(FCounter& C, int V) { C.Value = V; } };
+```
+- `friend` lets one named type reach private members. A test-only accessor keeps the member private for everyone else, instead of adding a public setter that game code could misuse.
+- **In our code:** `USHLifecycleComponent` and `FSHRouterTestAccess` (`05` E10).

@@ -29,6 +29,14 @@ struct FSHDemoAgentTag : public FMassTag
 	GENERATED_BODY()
 };
 
+/** Baseline B2's marker: the director adds it to every entity only when the run is B2, so B2's mirror processor
+ *  matches nothing in the other configurations (02 section 9). */
+USTRUCT()
+struct FSHMirrorTag : public FMassTag
+{
+	GENERATED_BODY()
+};
+
 /** The kinds of representation change the checker counts (01 section 6.3). */
 enum class ESHTransitionKind : uint8
 {
@@ -63,9 +71,9 @@ struct FSHObservedFragment : public FMassFragment
 enum class ESHConfig : uint8
 {
 	B0,   // stock: state on the actor component, no hand-off
-	B1,   // lifecycle hand-off, pool-aware (S3)
-	B2,   // per-frame mirror + push on spawn (S3)
-	B3,   // entity-owned (S3)
+	B1,   // lifecycle hand-off, pool-aware (USHLifecycleComponent)
+	B2,   // per-frame mirror + push on spawn (USHB2MirrorProcessor, USHB2ActorManagement)
+	B3,   // entity-owned: the actor's copy is never used
 	SH,   // StateHandoff (S5)
 	Count
 };

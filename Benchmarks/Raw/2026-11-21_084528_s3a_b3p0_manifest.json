@@ -1,0 +1,405 @@
+{
+  "environment": {
+    "date": "2026-11-21T08:45:28",
+    "engine": "5.8.4 (CL 58902052)",
+    "build_config": "Development (packaged)",
+    "compiler": "MSVC 14.44.35229, Windows SDK 10.0.22621.0",
+    "cpu": "Intel(R) Core(TM) i7-14650HX",
+    "gpus": "Intel(R) UHD Graphics (driver 32.0.101.7088); NVIDIA GeForce RTX 5070 Laptop GPU (driver 32.0.16.1047)",
+    "ram_gb": "31.6",
+    "os": "Microsoft Windows 11 Home Single Language build 26200",
+    "power_plan": "Power Scheme GUID: 6fecc5ae-f350-48a5-b669-b472cb895ccf  (Turbo)",
+    "on_ac_power": true,
+    "resolution": "1280x720 windowed, default scalability",
+    "common_args": "-windowed -ResX=1280 -ResY=720 -nosound -unattended -traceautostart=0 -deterministic -FPS=60 -novsync -SHExit -csvStartOnEvent=BenchStart -csvStopOnEvent=BenchEnd",
+    "cpu_affinity": "0xFFFF (performance cores only; hybrid CPU)",
+    "batch_args": {
+      "configs": "B3",
+      "agents": "4000",
+      "runs": 1,
+      "warmup": 10.0,
+      "capture": 30.0,
+      "flip_every": 4.0,
+      "event_rate": 0.02,
+      "check": 1,
+      "seed": 1,
+      "parked": false,
+      "pooling": 0,
+      "keep_low_res": 1,
+      "extra": "",
+      "cooldown": 5.0,
+      "label": "s3a_b3p0",
+      "no_prime": false,
+      "dry_run": false,
+      "expect_incidents": "none"
+    }
+  },
+  "runs": [
+    {
+      "name": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r0_prime",
+      "config": "B3",
+      "agents": 4000,
+      "run": 0,
+      "priming": true,
+      "exit_code": 0,
+      "wall_seconds": 13.2,
+      "command": "\"D:\\UNREAL PORTFOLIO\\P09_StateHandoff\\Build\\Windows\\StateHandoff\\Binaries\\Win64\\StateHandoff.exe\" -windowed -ResX=1280 -ResY=720 -nosound -unattended -traceautostart=0 -deterministic -FPS=60 -novsync -SHExit -csvStartOnEvent=BenchStart -csvStopOnEvent=BenchEnd -SHConfig=B3 -SHAgents=4000 -SHSeed=1 -SHWarmup=10.0 -SHCapture=30.0 -SHFlipEvery=4.0 -SHEventRate=0.02 -SHCheck=1 -SHPooling=0 -SHKeepLowRes=1 -SHRunTag=2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r0_prime",
+      "capture": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r0_prime.csv",
+      "stats": {
+        "FrameTime": {
+          "n": 1800,
+          "mean": 3.865126833333333,
+          "min": 2.2512,
+          "median": 3.7667,
+          "p95": 4.8914349999999995,
+          "p99": 5.665582,
+          "max": 8.5972
+        },
+        "GameThreadTime": {
+          "n": 1800,
+          "mean": 3.2526611111111112,
+          "min": 2.1773,
+          "median": 3.0985500000000004,
+          "p95": 4.7342699999999995,
+          "p99": 5.581259,
+          "max": 6.9734
+        },
+        "SHWorkload/Transitions": {
+          "n": 1800,
+          "mean": 16.718888888888888,
+          "min": 0.0,
+          "median": 4.0,
+          "p95": 12.049999999999955,
+          "p99": 392.13999999999896,
+          "max": 1701.0
+        },
+        "SHWorkload/Incidents": {
+          "n": 1800,
+          "mean": 0.0,
+          "min": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "SHWorkload/AgentsWithActor": {
+          "n": 1800,
+          "mean": 432.6722222222222,
+          "min": 1.0,
+          "median": 471.0,
+          "p95": 546.0,
+          "p99": 564.0,
+          "max": 567.0
+        },
+        "SHWorkload/BaselineCopies": {
+          "n": 1800,
+          "mean": 0.0,
+          "min": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "MassActors/NumSpawned": {
+          "n": 1800,
+          "mean": 438.61333333333334,
+          "min": 125.0,
+          "median": 471.0,
+          "p95": 546.05,
+          "p99": 564.0,
+          "max": 568.0
+        }
+      },
+      "finalised": true,
+      "events": {
+        "PSO": 2,
+        "SHBench/BenchFlip": 9,
+        "SHBench/BenchEnd": 1
+      },
+      "flip_windows": {
+        "event": "BenchFlip",
+        "frames": 60,
+        "rows": 440,
+        "columns": {
+          "FrameTime": {
+            "n": 440,
+            "mean": 3.847919545454545,
+            "min": 2.2512,
+            "median": 3.7128,
+            "p95": 5.168985,
+            "p99": 5.962323000000002,
+            "max": 7.3174
+          },
+          "GameThreadTime": {
+            "n": 440,
+            "mean": 3.2693088636363634,
+            "min": 2.1773,
+            "median": 2.98635,
+            "p95": 5.114484999999999,
+            "p99": 5.829355000000001,
+            "max": 6.8787
+          },
+          "SHWorkload/Transitions": {
+            "n": 440,
+            "mean": 55.268181818181816,
+            "min": 0.0,
+            "median": 3.0,
+            "p95": 233.1999999999971,
+            "p99": 1280.4000000000005,
+            "max": 1701.0
+          },
+          "SHWorkload/Incidents": {
+            "n": 440,
+            "mean": 0.0,
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "SHWorkload/AgentsWithActor": {
+            "n": 440,
+            "mean": 261.05,
+            "min": 1.0,
+            "median": 256.0,
+            "p95": 458.0,
+            "p99": 491.0,
+            "max": 564.0
+          },
+          "SHWorkload/BaselineCopies": {
+            "n": 440,
+            "mean": 0.0,
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "MassActors/NumSpawned": {
+            "n": 440,
+            "mean": 285.18636363636364,
+            "min": 125.0,
+            "median": 270.5,
+            "p95": 487.0999999999999,
+            "p99": 526.6400000000003,
+            "max": 564.0
+          }
+        }
+      },
+      "incidents_report": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r0_prime_incidents.csv",
+      "checker": {
+        "run": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r0_prime",
+        "config": "B3",
+        "seed": "1",
+        "eventrate": "0.0200",
+        "check": "1",
+        "pooling": "0",
+        "keeplowres": "1",
+        "frames": "1800",
+        "events": "196873",
+        "transitions": "30094",
+        "ActorToMesh": "1106",
+        "MeshToActor": "3867",
+        "MeshToNone": "9377",
+        "NoneToMesh": "12147",
+        "ActorToNone": "2765",
+        "NoneToActor": "0",
+        "ActorSwap": "832",
+        "incidents": "0",
+        "per1000": "0.0000",
+        "slotleaked": "0",
+        "slotdoubleheld": "0",
+        "baselinecopies": "0",
+        "Health:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Cooldown:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Memory:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Reservation:lost": "0,dup=0,corrupt=0,checks=7200000"
+      },
+      "log_errors": 0,
+      "log_warnings": 0
+    },
+    {
+      "name": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r1",
+      "config": "B3",
+      "agents": 4000,
+      "run": 1,
+      "priming": false,
+      "exit_code": 0,
+      "wall_seconds": 12.2,
+      "command": "\"D:\\UNREAL PORTFOLIO\\P09_StateHandoff\\Build\\Windows\\StateHandoff\\Binaries\\Win64\\StateHandoff.exe\" -windowed -ResX=1280 -ResY=720 -nosound -unattended -traceautostart=0 -deterministic -FPS=60 -novsync -SHExit -csvStartOnEvent=BenchStart -csvStopOnEvent=BenchEnd -SHConfig=B3 -SHAgents=4000 -SHSeed=1 -SHWarmup=10.0 -SHCapture=30.0 -SHFlipEvery=4.0 -SHEventRate=0.02 -SHCheck=1 -SHPooling=0 -SHKeepLowRes=1 -SHRunTag=2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r1",
+      "capture": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r1.csv",
+      "stats": {
+        "FrameTime": {
+          "n": 1800,
+          "mean": 3.8276004444444447,
+          "min": 2.1629,
+          "median": 3.7405,
+          "p95": 4.885079999999999,
+          "p99": 5.555931999999999,
+          "max": 8.2952
+        },
+        "GameThreadTime": {
+          "n": 1800,
+          "mean": 3.1941915,
+          "min": 2.1323,
+          "median": 3.0087,
+          "p95": 4.7369200000000005,
+          "p99": 5.411312,
+          "max": 7.0583
+        },
+        "SHWorkload/Transitions": {
+          "n": 1800,
+          "mean": 16.72,
+          "min": 0.0,
+          "median": 4.0,
+          "p95": 10.049999999999955,
+          "p99": 392.0199999999991,
+          "max": 1701.0
+        },
+        "SHWorkload/Incidents": {
+          "n": 1800,
+          "mean": 0.0,
+          "min": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "SHWorkload/AgentsWithActor": {
+          "n": 1800,
+          "mean": 432.73055555555555,
+          "min": 1.0,
+          "median": 471.0,
+          "p95": 546.0,
+          "p99": 564.0,
+          "max": 567.0
+        },
+        "SHWorkload/BaselineCopies": {
+          "n": 1800,
+          "mean": 0.0,
+          "min": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "MassActors/NumSpawned": {
+          "n": 1800,
+          "mean": 438.44388888888886,
+          "min": 125.0,
+          "median": 471.0,
+          "p95": 546.05,
+          "p99": 564.0,
+          "max": 568.0
+        }
+      },
+      "finalised": true,
+      "events": {
+        "PSO": 2,
+        "SHBench/BenchFlip": 9,
+        "SHBench/BenchEnd": 1
+      },
+      "flip_windows": {
+        "event": "BenchFlip",
+        "frames": 60,
+        "rows": 440,
+        "columns": {
+          "FrameTime": {
+            "n": 440,
+            "mean": 3.7979986363636367,
+            "min": 2.1629,
+            "median": 3.69305,
+            "p95": 5.18323,
+            "p99": 5.760035,
+            "max": 6.9538
+          },
+          "GameThreadTime": {
+            "n": 440,
+            "mean": 3.2114800000000003,
+            "min": 2.1323,
+            "median": 2.9745,
+            "p95": 5.087635000000001,
+            "p99": 5.757694000000004,
+            "max": 6.5027
+          },
+          "SHWorkload/Transitions": {
+            "n": 440,
+            "mean": 55.27272727272727,
+            "min": 0.0,
+            "median": 3.0,
+            "p95": 227.49999999999682,
+            "p99": 1280.4000000000005,
+            "max": 1701.0
+          },
+          "SHWorkload/Incidents": {
+            "n": 440,
+            "mean": 0.0,
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "SHWorkload/AgentsWithActor": {
+            "n": 440,
+            "mean": 261.2886363636364,
+            "min": 1.0,
+            "median": 256.5,
+            "p95": 458.0,
+            "p99": 491.0,
+            "max": 564.0
+          },
+          "SHWorkload/BaselineCopies": {
+            "n": 440,
+            "mean": 0.0,
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "MassActors/NumSpawned": {
+            "n": 440,
+            "mean": 284.4931818181818,
+            "min": 125.0,
+            "median": 270.5,
+            "p95": 471.5499999999995,
+            "p99": 492.0,
+            "max": 564.0
+          }
+        }
+      },
+      "incidents_report": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r1_incidents.csv",
+      "checker": {
+        "run": "2026-11-21_084528_s3a_b3p0_B3_N4000_P0_r1",
+        "config": "B3",
+        "seed": "1",
+        "eventrate": "0.0200",
+        "check": "1",
+        "pooling": "0",
+        "keeplowres": "1",
+        "frames": "1800",
+        "events": "196873",
+        "transitions": "30096",
+        "ActorToMesh": "1107",
+        "MeshToActor": "3868",
+        "MeshToNone": "9377",
+        "NoneToMesh": "12147",
+        "ActorToNone": "2765",
+        "NoneToActor": "0",
+        "ActorSwap": "832",
+        "incidents": "0",
+        "per1000": "0.0000",
+        "slotleaked": "0",
+        "slotdoubleheld": "0",
+        "baselinecopies": "0",
+        "Health:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Cooldown:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Memory:lost": "0,dup=0,corrupt=0,checks=7200000",
+        "Reservation:lost": "0,dup=0,corrupt=0,checks=7200000"
+      },
+      "log_errors": 0,
+      "log_warnings": 0
+    }
+  ]
+}

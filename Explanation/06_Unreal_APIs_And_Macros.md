@@ -31,8 +31,12 @@
 | 22 | Components as data holders, `FindComponentByClass` | S2b |
 | 23 | `CSV_CUSTOM_STAT` | S2b |
 | 24 | `FFileHelper::SaveStringToFile`, `FPaths::ProjectSavedDir` | S2b |
+| 25 | `IMassActorPoolableInterface` (BlueprintNativeEvents) | S3a |
+| 26 | `UMassRepresentationActorManagement`, `RepresentationActorManagementClass` | S3a |
+| 27 | `GetEntityHandleFromActor`, `GetFragmentDataStruct` | S3a |
+| 28 | Component ticking on demand, `EndPlay` reasons | S3a |
 
-Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests; S2b: phases, chunk views, subsystem requirements). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
+Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests; S2b: phases, chunk views, subsystem requirements; S3a: pooling, actor management, actor → entity lookups). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
 
 ---
 
@@ -348,3 +352,47 @@ Mass APIs are added here as they enter the code (S1: fragments, traits, spawning
 6. **Common mistakes.** Ignoring the return value; assuming the packaged game writes to the project's `Saved` folder.
 7. **Example.** `FFileHelper::SaveStringToFile(Report, *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SHRuns"), Name));`
 8. **In this project.** `USHWorkloadSubsystem::WriteReport` (`05` D4); `run_bench.py` collects the file (`05` D9).
+
+## 25. Mass actor pooling: `IMassActorPoolableInterface` (BlueprintNativeEvents)
+
+1. **What it is.** The interface an actor class implements to be pooled by Mass: `CanBePooled`, `PrepareForPooling`, `PrepareForGame` (`MG/MassActors/Public/MassActorPoolableInterface.h:22–29`).
+2. **Why it exists.** Spawning actors is expensive; Mass can hide a released actor and give it to another entity later.
+3. **How it works.** On release, Mass pools an actor only if pooling is on (`mass.spawning.actorpooling`, default on, `MG/MassActors/Private/MassActorSpawnerSubsystem.cpp:24, 31`), the actor implements the interface and `CanBePooled` says yes (`:121–127`); it calls `PrepareForPooling` and hides the actor. On reuse it shows and moves the actor and calls `PrepareForGame` (`:235–262`). A pooled actor gets **no** `EndPlay` or `BeginPlay` (`01b #4`). The functions are BlueprintNativeEvents: callers use `IMassActorPoolableInterface::Execute_CanBePooled(Actor)`, and a C++ class overrides `CanBePooled_Implementation()`, whose generated default returns `false`.
+4. **When to use it.** Actor representations that are spawned and released often.
+5. **When not to.** Actors whose state can't be reset reliably: a pooled actor keeps everything its previous entity left in it.
+6. **Common mistakes.** Overriding `CanBePooled()` instead of `CanBePooled_Implementation()`; calling the function directly instead of through `Execute_…`; putting hand-off code only in `BeginPlay`/`EndPlay` (it never runs for pooled actors).
+7. **Example.** `virtual bool CanBePooled_Implementation() override { return bAllowPooling; }`
+8. **In this project.** `ASHDemoAgent` (`05` E4); B1's pool callbacks (`05` E1).
+
+## 26. Replacing Mass's actor management: `UMassRepresentationActorManagement`, `RepresentationActorManagementClass`
+
+1. **What it is.** The class whose functions Mass calls when it spawns, enables, disables, teleports or releases an entity's actor (`MG/MassRepresentation/Public/MassRepresentationActorManagement.h`), chosen per visualization trait with `Params.RepresentationActorManagementClass` (`MassRepresentationFragments.h:169`).
+2. **Why it exists.** Games customise how actors are spawned and set up without rewriting the representation processor.
+3. **How it works.** Mass uses the class default object (`MassRepresentationFragments.h:290`), so overrides are `const` and keep no state. `OnPostActorSpawn` runs after an actor was spawned or taken from the pool; the base version records the actor in the entity's `FMassActorFragment` and the actor → entity map (`MassRepresentationActorManagement.cpp:92–117`). `OnPreActorSpawn` runs before.
+4. **When to use it.** Per-actor setup that needs the entity's data at spawn time.
+5. **When not to.** Anything that must run when the actor is re-enabled without a spawn (a kept, disabled actor): no spawn callback runs then.
+6. **Common mistakes.** Forgetting `Super::OnPostActorSpawn` (the actor fragment is never set); storing state in the class; assuming the callback runs for a kept actor that is re-enabled.
+7. **Example.** `Visualization->Params.RepresentationActorManagementClass = UMyActorManagement::StaticClass();`
+8. **In this project.** B2's push on spawn, `USHB2ActorManagement` (`05` E2). S6's pre-spawn capture uses `OnPreActorSpawn`.
+
+## 27. Finding an actor's entity and its fragments: `UMassActorSubsystem::GetEntityHandleFromActor`, `FMassEntityManager::GetFragmentDataStruct`
+
+1. **What it is.** The actor → entity map (`MG/MassActors/Public/MassActorSubsystem.h:148`), and access to one fragment of one entity by its reflected type (`Source/Runtime/MassEntity/Public/MassEntityManager.h:788`), with `IsEntityValid` (`:738`).
+2. **Why it exists.** Actor-side code (components) has an actor, not an entity handle.
+3. **How it works.** The map entry is written when the actor is recorded in the entity's actor fragment (`SetAndUpdateHandleMap`, in `OnPostActorSpawn`) and removed when the actor is released (`ResetAndUpdateHandleMap`, `MassRepresentationActorManagement.cpp:135–141`). `GetFragmentDataStruct` returns an `FStructView` (type + memory) of the fragment.
+4. **When to use it.** Occasional lookups from outside a processor.
+5. **When not to.** Per-entity work every frame: a processor's chunk views are far cheaper (`06` §21).
+6. **Common mistakes.** Looking up the entity in `BeginPlay` (the map entry doesn't exist yet, `01b #7`); looking it up again at `EndPlay` (the entry is already gone); keeping the `FStructView` across frames.
+7. **Example.** `const FMassEntityHandle E = ActorSubsystem->GetEntityHandleFromActor(GetOwner()); if (EntityManager.IsEntityValid(E)) { … }`
+8. **In this project.** B1's hydrate and dehydrate (`05` E1); B2's push uses the spawn request's entity handle instead.
+
+## 28. Component ticking on demand, and `EndPlay` reasons
+
+1. **What it is.** `PrimaryComponentTick.bCanEverTick` / `bStartWithTickEnabled` decide whether a component can tick and whether it starts ticking; `SetComponentTickEnabled` turns it on and off at run time. `EndPlay(EEndPlayReason::Type)` says why play ends (`Destroyed`, `LevelTransition`, `EndPlayInEditor`, `RemovedFromWorld`, `Quit`).
+2. **Why it exists.** Ticking costs time even when the tick does nothing; and cleanup depends on why the object goes away.
+3. **How it works.** A component with `bCanEverTick = true` and `bStartWithTickEnabled = false` registers a tick function that stays disabled until enabled.
+4. **When to use it.** Retry-until-ready work, like waiting for a mapping to appear.
+5. **When not to.** Work that has a natural event to hook into.
+6. **Common mistakes.** Leaving the tick on after the work is done; doing world work in `EndPlay` during teardown (`Quit`, `EndPlayInEditor`), when other systems are shutting down.
+7. **Example.** `if (!TryHydrate()) { SetComponentTickEnabled(true); }`
+8. **In this project.** `USHLifecycleComponent` (`05` E1).

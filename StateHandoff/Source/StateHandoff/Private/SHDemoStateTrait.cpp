@@ -28,4 +28,9 @@ void USHDemoStateTrait::BuildTemplate(FMassEntityTemplateBuildContext& BuildCont
 
 	// The checker's own record of the representation, so transitions are counted identically in every configuration.
 	BuildContext.AddFragment<FSHObservedFragment>();
+
+	if (bAddMirrorTag)
+	{
+		BuildContext.AddTag<FSHMirrorTag>(); // a tag: no memory per entity (05 B1)
+	}
 }

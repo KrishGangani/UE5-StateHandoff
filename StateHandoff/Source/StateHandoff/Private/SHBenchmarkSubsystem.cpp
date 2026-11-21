@@ -22,6 +22,7 @@
 #include "Misc/Crc.h"
 #include "Misc/Parse.h"
 #include "ProfilingDebugging/CsvProfiler.h"
+#include "SHB2Mirror.h"
 #include "SHDemoAgent.h"
 #include "SHDemoStateTrait.h"
 #include "SHDemoTypes.h"
@@ -105,6 +106,12 @@ USHBenchmarkSubsystem::FRunSettings USHBenchmarkSubsystem::ReadRunSettings()
 	FParse::Value(CommandLine, TEXT("SHCheck="), Check);
 	Read.bCheck = Check != 0;
 	Read.bParked = FParse::Param(CommandLine, TEXT("SHParked"));
+	int32 Pooling = 0;
+	FParse::Value(CommandLine, TEXT("SHPooling="), Pooling);
+	Read.bPooling = Pooling != 0;
+	int32 KeepLowRes = 1;
+	FParse::Value(CommandLine, TEXT("SHKeepLowRes="), KeepLowRes);
+	Read.bKeepLowRes = KeepLowRes != 0;
 	if (Read.bParked)
 	{
 		Read.FlipEverySeconds = 0.0; // a parked camera never flips, whatever -SHFlipEvery says
@@ -160,7 +167,9 @@ void USHBenchmarkSubsystem::BuildEntityConfig()
 	EntityConfig = NewObject<UMassEntityConfigAsset>(this, TEXT("SHDemoEntityConfig"), RF_Transient);
 	FMassEntityConfig& Config = EntityConfig->GetMutableConfig();
 
-	Config.AddTrait(*NewObject<USHDemoStateTrait>(EntityConfig));
+	USHDemoStateTrait* DemoTrait = NewObject<USHDemoStateTrait>(EntityConfig);
+	DemoTrait->bAddMirrorTag = Settings.Config == ESHConfig::B2; // B2's mirror processor matches only tagged entities
+	Config.AddTrait(*DemoTrait);
 	Config.AddTrait(*NewObject<UMassLODCollectorTrait>(EntityConfig));
 
 	UMassMovableVisualizationTrait* Visualization = NewObject<UMassMovableVisualizationTrait>(EntityConfig);
@@ -168,6 +177,13 @@ void USHBenchmarkSubsystem::BuildEntityConfig()
 	// entity shows as an instanced mesh: the kept-disabled path under test (01b #5).
 	Visualization->HighResTemplateActor = ASHDemoAgent::StaticClass();
 	Visualization->LowResTemplateActor = ASHDemoAgent::StaticClass();
+	// -SHKeepLowRes=0 is the H2 variant: every Actor -> Mesh switch then releases the actor (01b #5).
+	Visualization->Params.bKeepLowResActors = Settings.bKeepLowRes;
+	if (Settings.Config == ESHConfig::B2)
+	{
+		// B2's push on spawn (05 E2). The engine allows replacing the class by default (MassRepresentationFragments.h:220).
+		Visualization->Params.RepresentationActorManagementClass = USHB2ActorManagement::StaticClass();
+	}
 	if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
 	{
 		FMassStaticMeshInstanceVisualizationMeshDesc& MeshDesc = Visualization->StaticMeshInstanceDesc.Meshes.AddDefaulted_GetRef();
@@ -322,6 +338,8 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 	WorkloadRun.Seed = static_cast<uint32>(Settings.Seed);
 	WorkloadRun.EventRate = Settings.EventRate;
 	WorkloadRun.bCheck = Settings.bCheck;
+	WorkloadRun.bPooling = Settings.bPooling;
+	WorkloadRun.bKeepLowRes = Settings.bKeepLowRes;
 	WorkloadRun.RunTag = Settings.RunTag;
 	Workload = World.GetSubsystem<USHWorkloadSubsystem>();
 	if (!Workload || !Workload->BeginRun(WorkloadRun, Agents.Num()))
@@ -349,6 +367,8 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 	CSV_METADATA(TEXT("SHEventRate"), *FString::SanitizeFloat(Settings.EventRate));
 	CSV_METADATA(TEXT("SHCheck"), Settings.bCheck ? TEXT("1") : TEXT("0"));
 	CSV_METADATA(TEXT("SHParked"), Settings.bParked ? TEXT("1") : TEXT("0"));
+	CSV_METADATA(TEXT("SHPooling"), Settings.bPooling ? TEXT("1") : TEXT("0"));
+	CSV_METADATA(TEXT("SHKeepLowRes"), Settings.bKeepLowRes ? TEXT("1") : TEXT("0"));
 }
 
 void USHBenchmarkSubsystem::Tick(float DeltaTime)
@@ -376,7 +396,7 @@ void USHBenchmarkSubsystem::Tick(float DeltaTime)
 		{
 			Phase = ERunPhase::Capture;
 			CSV_EVENT(SHBench, TEXT("BenchStart"));
-			Workload->SetCapturing(true);
+			Workload->RequestCapturing(true); // from the next frame, the first one the CSV holds
 			UE_LOG(LogSHBench, Display, TEXT("BenchStart at %.3f s (warm-up %.1f s)"), Now, Settings.WarmupSeconds);
 		}
 		else if (FromBenchStart + DeltaTime >= 0.0)
@@ -392,6 +412,7 @@ void USHBenchmarkSubsystem::Tick(float DeltaTime)
 		{
 			// Checked first: a flip due on this frame would have no measured window left.
 			CSV_EVENT(SHBench, TEXT("BenchEnd"));
+			Workload->RequestCapturing(false); // this frame still counts: the switch takes effect at the next frame's start
 			Phase = ERunPhase::Done;
 			FramesSinceEnd = 0;
 			UE_LOG(LogSHBench, Display, TEXT("BenchEnd after %.3f s of capture; %d scheduled flips, %d camera jumps"), FromBenchStart, ScheduledFlips, Teleports);
@@ -427,9 +448,7 @@ void USHBenchmarkSubsystem::Tick(float DeltaTime)
 		{
 			// The frame after BenchEnd: outside the capture (-csvStopOnEvent=BenchEnd ends it with the BenchEnd frame).
 			LogRepresentationCounts(TEXT("BenchEnd"));
-			// Counting stops here, not at BenchEnd: the BenchEnd frame's sweep (FrameEnd phase, after this tick) belongs to
-			// the capture, which -csvStopOnEvent=BenchEnd ends with that frame. (The CSV starts one frame after BenchStart, 09 S2b.)
-			Workload->SetCapturing(false);
+			// Counting stopped at the start of this frame (RequestCapturing at BenchEnd), so every count is final.
 			Workload->WriteReport();
 		}
 		if (Settings.bExitWhenDone && FramesSinceEnd >= SHBench::ExitDelayFrames)

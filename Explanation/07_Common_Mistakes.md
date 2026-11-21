@@ -62,6 +62,19 @@
 | A trailing comment on a `UENUM` value that continues on the next line | The next value's tooltip shows the wrong text (the header tool reads the second line as that value's leading comment; seen in `SHContractTypes.gen.cpp`, `Count.ToolTip`) | One-line trailing comments; longer explanations in the enum's doc comment | Read the generated `.gen.cpp` metadata |
 | Running the checker in a timing run | Timing results include the instrument's cost | `-SHCheck=0` for timing batches (`run_bench.py --check 0`) | The CSV metadata `SHCheck` of each capture |
 
+## The baselines (S3a)
+
+| Mistake | How to spot it | How to prevent it | How to debug it |
+|---|---|---|---|
+| Hydrating an actor in `BeginPlay` with the actor → entity map | The lookup returns an invalid handle on the spawn frame | Retry on the next ticks until the map has the entry (`05` E1) | Log `GetEntityHandleFromActor` in `BeginPlay` and one frame later |
+| Looking the entity up again at `EndPlay` or `PrepareForPooling` | The handle is invalid: Mass removed the map entry before it released the actor | Remember the entity found at hydration (`MassRepresentationActorManagement.cpp:135–141`) | — |
+| A lifecycle hand-off that isn't pool-aware | With pooling on, state is lost or leaks between agents: pooled actors get no `BeginPlay`/`EndPlay` (`01b #4`) | Also hydrate in `PrepareForGame` and dehydrate in `PrepareForPooling` (`05` E1) | Compare B1 with pooling off and on |
+| Overriding `CanBePooled()` instead of `CanBePooled_Implementation()` | The actor is never pooled (the generated default answers `false`) | Override the `_Implementation` of a BlueprintNativeEvent (`06` §25) | `MassActors/NumPooled` in the CSV stays 0 |
+| State in a `UMassRepresentationActorManagement` subclass | Wrong or shared values: Mass calls the class default object | Keep it stateless; reach the world through the entity manager (`05` E2) | — |
+| A mirror processor ordered by group name only | It may run after gameplay in the same frame, and the release-frame behaviour changes | `ExecuteBefore Behavior` stated explicitly (`05` E2) | Mass's processor dependency output |
+| A baseline that silently never runs (wrong tag, class not applied, wrong configuration check) | Its results look like B0's | Count the baseline's own copies; `run_bench.py` fails a B1/B2 run with none (`05` E6, E9) | The report's `baselinecopies=` |
+| Switching a counter on in the middle of a frame | Some counters cover one frame more or less than the CSV | Switch at the start of a frame (`RequestCapturing`, applied in `BeginFrame`, `05` E6) | Compare the report's totals with the CSV's per-frame sums |
+
 ## Mass representation hazards (from Phase 2, to be turned into tests)
 
 | Mistake | How to spot it | How to prevent it | How to debug it |

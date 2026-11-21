@@ -17,6 +17,11 @@ class USHDemoStateTrait : public UMassEntityTraitBase
 {
 	GENERATED_BODY()
 
+public:
+	/** Baseline B2 only: also add FSHMirrorTag, so B2's mirror processor matches these entities. Set by the director. */
+	UPROPERTY()
+	bool bAddMirrorTag = false;
+
 protected:
 	virtual void BuildTemplate(FMassEntityTemplateBuildContext& BuildContext, const UWorld& World) const override;
 };

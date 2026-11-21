@@ -8,6 +8,7 @@
 | B | S1 (workload skeleton: Mass only) | `SHDemoTypes.h`, `SHDemoStateTrait`, `SHDemoAgent`, `SHMassProcessors`, `SHBenchmarkSubsystem`; `Build.cs` and `DefaultGame.ini` changes; `Tools\run_uncooked.bat`, `run_packaged.bat` |
 | C | S2a (the instrument, as plain C++) | Plugin `SHContractTypes.h`, `SHInvariantChecker`, tests; game `SHDemoState`, tests; both `Build.cs` changes; `Tools\run_tests.bat` |
 | D | S2b (the instrument in the world) | `SHDemoTypes` (changed), `SHAgentStateComponent`, `SHStateRouter`, `SHWorkloadSubsystem`, `SHWorkloadProcessors`; trait, agent and director changes; `Build.cs`; `Tools\csv_stats.py`, `run_bench.py`, `s2b_checks.bat` |
+| E | S3a (the baselines B1, B2, B3 and the workload switches) | `SHLifecycleComponent`, `SHB2Mirror`; router, agent, trait, types, workload and director changes; `Build.cs`; `run_bench.py`, `csv_stats.py`, `s3a_checks.bat`; `SHRouterTests.cpp` |
 
 ---
 
@@ -494,7 +495,7 @@ S2b connects the S2a instrument to the running workload: every demo entity carri
 |---|---|
 | `struct FSHAgentView { FSHHealthState* Health; …; USHAgentStateComponent* ActorState; FSHChannelFragment& Entity(ESHChannel) const; }` | Everything needed to find one agent's state this frame: pointers into its four entity fragments and, if the entity has an actor, the actor's component. Built per agent from the processor's chunk views (D5) and **never stored**: fragment memory moves when an entity changes archetype (`07`, Mass hazards) |
 | `SHRouter::Authoritative(Config, Channel, View)` | The copy the configuration's gameplay reads and writes (`02` §9). **B0:** the actor's copy if the entity has an actor, even a disabled one, else the entity's: what stock Mass leads a game to do, because the actor is "where the components are". B1–B3 (S3) and SH (S5) add their rules here. The checker reads through the **same** function, so it judges what each configuration's game would actually see |
-| `SHRouter::IsImplemented(Config)` | `true` for B0 only in S2b. The workload refuses any other configuration (D4), so a run can never report numbers for a rule that doesn't exist yet |
+| `SHRouter::IsImplemented(Config)` | `true` for B0 only in S2b (B0–B3 since S3a, E3). The workload refuses any other configuration (D4), so a run can never report numbers for a rule that doesn't exist yet |
 
 ### D4. `Public\SHWorkloadSubsystem.h` / `Private\SHWorkloadSubsystem.cpp`: the workload and the checker
 
@@ -504,7 +505,7 @@ S2b connects the S2a instrument to the running workload: every demo entity carri
 |---|---|
 | `class USHWorkloadSubsystem : public UWorldSubsystem` | One per world, created and destroyed with it. **Not tickable** (changed from `02` v1.0, see `02` §14): its per-frame work is called by the two processors (D5), which already walk every agent's fragments; a tick of its own would have to look every entity up again |
 | `struct FRunConfig { Config, Seed, EventRate = 0.02, bCheck, RunTag }` | What the director passes when the entities exist. `EventRate`: the probability that an agent gets an event at one event point in one frame (`02` §7). `bCheck`: correctness runs sweep, timing runs don't (`Benchmarks/README.md`, rule 6); events and transition counts run either way, so both kinds of run do the same gameplay |
-| `BeginRun`, `SetCapturing`, `BeginFrame`, `ApplyEvent`, `ObserveAgent`, `CheckAgent`, `EndFrame`, `WriteReport` | The frame, in calling order (source table below). `SetCapturing` is switched on by the director at `BenchStart` and off on the frame after `BenchEnd` (D7), so the frames from `BenchStart` to `BenchEnd` inclusive are counted |
+| `BeginRun`, `SetCapturing`, `BeginFrame`, `ApplyEvent`, `ObserveAgent`, `CheckAgent`, `EndFrame`, `WriteReport` | The frame, in calling order (source table below). In S2b, `SetCapturing` was switched on by the director at `BenchStart` and off on the frame after `BenchEnd` (D7), so the frames from `BenchStart` to `BenchEnd` inclusive were counted. **Replaced in S3a** by `RequestCapturing` (E6) |
 | `struct FIncident { Frame, Agent, Channel, Class, LastKind, FramesSinceTransition }` | One divergence, as written to the report. `Channel == Count` marks a reservation invariant, with `Class` 0 = slot leaked, 1 = slot double-held; otherwise `Class` is the `ESHDivergence`. `FramesSinceTransition = INDEX_NONE` when the agent never changed representation (written as an empty field, so it can't look like a long delay) |
 | `struct FFrameCounts { EventsSimulation, EventsActor, Transitions, Incidents, AgentsWithActor }` | This frame's counts, published to the CSV **once per frame** and reset: a CSV stat costs about 50 ns per call (measured in UE5-UpdateBudget), so per-agent publishing would distort the timing |
 | `TArray<FSHAgentState> Expected` | **The oracle**: each agent's expected state, indexed by agent. It receives exactly the writes the configuration's copy receives, so with a correct hand-off the two stay bit-identical |
@@ -557,10 +558,10 @@ S2b connects the S2a instrument to the running workload: every demo entity carri
 |---|---|
 | `-SHConfig=ID`, `-SHEventRate=P`, `-SHCheck=0\|1`, `-SHParked` in `ReadRunSettings` | The configuration (default B0), the event probability (default 0.02), the sweep switch (default on), and a parked camera. An unknown configuration name sets `bConfigValid = false` |
 | `-SHParked`: `FlipEverySeconds = 0.0` and, in `UpdateCamera`, `Angle = 0.0` | The camera holds its first position for the whole run, so the LOD settles during the warm-up and nothing changes representation in the capture. Used for the no-false-positives check (`09`, S2b) and S3's steady-state timing batch (SC6) |
-| `ValidateRunSettings`: an unknown configuration, one not implemented yet (`SHRouter::IsImplemented`), or an event rate outside 0–1 | Errors that stop the run (forced exit with code 3 with `-SHExit`, B5), as for the S1 settings. The unimplemented configuration is refused here, **before** anything is spawned, so a refused run leaves an empty world (code review) |
+| `ValidateRunSettings`: an unknown configuration, one not implemented yet (`SHRouter::IsImplemented`; since S3a only SH), or an event rate outside 0–1 | Errors that stop the run (forced exit with code 3 with `-SHExit`, B5), as for the S1 settings. The unimplemented configuration is refused here, **before** anything is spawned, so a refused run leaves an empty world (code review) |
 | `StartRun`, after spawning: `FRunConfig` filled from the settings, `Workload = World.GetSubsystem<USHWorkloadSubsystem>()`, `BeginRun(…)` | The workload starts with the entities. `BeginRun` still refuses an unimplemented configuration, as a second line of defence; the director then goes `Idle` and, with `-SHExit`, exits with code 3 (forced) |
 | `CSV_METADATA` `SHConfig`, `SHEventRate`, `SHCheck`, `SHParked` | Every capture says how it was made |
-| `Workload->SetCapturing(true)` at `BenchStart`; `SetCapturing(false)` and `WriteReport()` on the frame after `BenchEnd` | The checker counts the frames from `BenchStart` to `BenchEnd` inclusive. The director ticks **before** the FrameEnd processor (D5), so switching off at `BenchEnd` would already lose that frame's sweep; switching off one frame later keeps it (changed after the code review, which found the first version stopping one frame early). **Measured in S2b-7:** the CSV capture holds one frame fewer: it ends with the `BenchEnd` frame but starts on the frame **after** `BenchStart` (1,800 rows, no `BenchStart` event in the file; when the start event fires, the profiler begins a capture without recording that event, `Source/Runtime/Core/Private/ProfilingDebugging/CsvProfiler.cpp:4767–4772`). So the report has 1,801 frames and the CSV 1,800; S3 moves the checker's start one frame later to match |
+| `Workload->SetCapturing(true)` at `BenchStart`; `SetCapturing(false)` and `WriteReport()` on the frame after `BenchEnd` (**S2b; replaced in S3a** by `RequestCapturing`, E6, E7) | The checker counted the frames from `BenchStart` to `BenchEnd` inclusive. The director ticks **before** the FrameEnd processor (D5), so switching off at `BenchEnd` would already lose that frame's sweep; switching off one frame later keeps it (changed after the code review, which found the first version stopping one frame early). **Measured in S2b-7:** the CSV capture holds one frame fewer: it ends with the `BenchEnd` frame but starts on the frame **after** `BenchStart` (1,800 rows, no `BenchStart` event in the file; when the start event fires, the profiler begins a capture without recording that event, `Source/Runtime/Core/Private/ProfilingDebugging/CsvProfiler.cpp:4767–4772`). So the report has 1,801 frames and the CSV 1,800; S3 moves the checker's start one frame later to match |
 | `UPROPERTY(Transient) TObjectPtr<USHWorkloadSubsystem> Workload;` | Cached once; `UPROPERTY` so the garbage collector knows the reference |
 | *Removed:* `GetAgents()` | S1 added it for the workload, which now reads agents through its processors' chunk views; it had no user |
 
@@ -568,7 +569,7 @@ S2b connects the S2a instrument to the running workload: every demo entity carri
 
 | Line | What it does, and why |
 |---|---|
-| Private: `MassActors`, `MassCommon` | `MassCommon` for the `Behavior` group name, used only in `SHWorkloadProcessors.cpp` |
+| Private: `MassActors`, `MassCommon` | `MassCommon` for the `Behavior` group name, used only in `SHWorkloadProcessors.cpp`. (S3a moved `MassActors` to the public list, E8) |
 
 ### D9. `Tools\csv_stats.py`, `Tools\run_bench.py` and `Tools\s2b_checks.bat`
 
@@ -590,3 +591,99 @@ S2b connects the S2a instrument to the running workload: every demo entity carri
 | `write_manifest()` after every run; `write_summary()` at the end | The manifest (environment, exact command lines, per-run statistics and checker summary) survives a crash. The summary table gives, per configuration and N, the median across runs [min–max] of each run's median / p95 / p99, the flip-window p99 and max, transitions, and incidents per 1,000 |
 
 **`s2b_checks.bat`** runs every S2b check in one queue job and stops at the first failure: both builds, the automation tests, the `csv_stats.py` self-test, packaging, the refusal of `-SHConfig=SH` (exit code 3 expected), and three small `run_bench.py` batches (`09`, S2b). After every step: `if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%`, never `… || exit /b`, which can exit with 0 after a failure under `cmd /c` (found by UE5-NavReadyPCG, AGENT_BRIEF rule 12). The same change was made to `phase4_checks.bat` (A11); `09` records the re-check of every earlier run.
+
+---
+
+## Part E · S3a: the baselines B1, B2, B3 and the workload switches
+
+S3a builds the three remaining baselines exactly as `02` §9 describes them, plus the two workload switches the baseline capture needs (actor pooling, `bKeepLowResActors`). Each baseline is a faithful version of a pattern a game would really use, not a strawman. S3b calibrates and captures them.
+
+### E1. `Public\SHLifecycleComponent.h` / `Private\SHLifecycleComponent.cpp`: baseline B1
+
+| Code | What it does, and why |
+|---|---|
+| `class USHLifecycleComponent : public UActorComponent` | The lifecycle hand-off of Epic's PersistenceLab sample (`01b #10`), made **pool-aware**: hydrate (entity → actor) in `BeginPlay` and `PrepareForGame`, dehydrate (actor → entity) in `EndPlay` and `PrepareForPooling`. On every demo actor in every configuration (so actors are the same size everywhere, SC7); it acts only when the workload runs B1 (`IsActiveBaseline`, which asks the workload subsystem) |
+| `PrimaryComponentTick.bCanEverTick = true; bStartWithTickEnabled = false;` | It ticks only while it waits to hydrate, then turns its tick off (`SetComponentTickEnabled(false)`) |
+| `BeginHydrate()` → `TryHydrate()`, else `SetComponentTickEnabled(true)` | Mass records the actor → entity mapping only **after** the actor has spawned and started playing (`01b #7`; the mapping is set in `OnPostActorSpawn`, `MG/MassRepresentation/Private/MassRepresentationActorManagement.cpp:92–117`), so the first try in `BeginPlay` normally fails and the component retries on its next ticks. A pooled actor is the same: `PrepareForGame` runs inside the spawner, before the mapping to its new entity exists (`MG/MassActors/Private/MassActorSpawnerSubsystem.cpp:235–262`) |
+| `TryHydrate()`: `UMassActorSubsystem::GetEntityHandleFromActor`, `FMassEntityManager::IsEntityValid`, `GetFragmentDataStruct`, `CopyScriptStruct` | Finds the entity (`MG/MassActors/Public/MassActorSubsystem.h:148`), checks it exists (`Source/Runtime/MassEntity/Public/MassEntityManager.h:738`), and copies each of the four channel fragments, found by type (`:788`), into the state component, version included. Then it remembers the entity and sets `bHydrated`, which B1's router rule reads |
+| `Dehydrate()` | Copies the component back into the **remembered** entity, if it still exists. Remembered, because Mass clears the mapping **before** it releases the actor (`MassRepresentationActorManagement.cpp:135–141`) |
+| `EndPlay`: `Dehydrate()` only for `EEndPlayReason::Destroyed` | Mass destroys a released actor; at world teardown or quit the entities are going away too, so nothing is copied into a manager that is shutting down |
+| **Kept by design (code review):** the dehydrate can run frames after the release | Mass queues and budgets destruction, so `EndPlay` can run one or more frames after the entity lost its actor, and the copy then overwrites writes the entity received in between. That is hypothesis H1 itself (`01` §4); a lifecycle hand-off has no earlier moment to hook into. The S3a code review flagged it; it is documented here, in the code and in `02` §14, not "fixed" into a different baseline |
+| `OnPrepareForPooling()` / `OnPrepareForGame()` | Called by the actor's pool callbacks (E4): a pooled actor skips `EndPlay` and `BeginPlay` (`01b #4`), which is exactly the path a lifecycle hand-off that isn't pool-aware misses |
+| `friend struct FSHRouterTestAccess;` | Lets the router test set the hydrated flag (E10); no game code uses it |
+| `Workload->NoteBaselineCopy()` after each hydrate and dehydrate | Evidence that the baseline's path ran (E6) |
+
+### E2. `Public\SHB2Mirror.h` / `Private\SHB2Mirror.cpp`: baseline B2
+
+| Code | What it does, and why |
+|---|---|
+| `class USHB2MirrorProcessor : public UMassProcessor` | B2's first half: **every frame**, copy each agent's actor state into its entity fragments, the way Mass's own translators copy transforms (`01b #1`). Group `SyncWorldToMass` (MassCommon, `MG/MassCommon/Public/MassCommonTypes.h:21`, the group the engine's translators use, e.g. `MG/MassActors/Private/Translators/MassSceneComponentLocationTranslator.cpp:17`), and **explicitly** `ExecuteBefore Behavior`, so the mirror runs before the simulation event point. Game thread (it reads actor components); the project's shared flags |
+| Query: the four channels (read-write), `FMassActorFragment` (read-only), `FSHDemoAgentTag`, **`FSHMirrorTag`** | The tag is added only in B2 runs (E5, E7), so the processor matches nothing in the other configurations. Read-only actor access is enough: `FMassActorFragment::Get()` (`MassActorSubsystem.h:124`) |
+| `Health[It] = State->Health;` and the other three | Whole structs, version included: after the mirror the entity is an exact copy of the actor's state. A write made later in the same frame (sim point, actor point) goes to the actor only, so in a release frame it is not in the entity: hypothesis H3 (`01` §4) |
+| `class USHB2ActorManagement : public UMassRepresentationActorManagement`, `OnPostActorSpawn` override | B2's second half: when Mass gives an entity an actor, fresh or from the pool, **push** the entity's state into the actor's component, after `Super` has recorded the actor in the entity's actor fragment (`MassRepresentationActorManagement.cpp:92–117`). Public, as in the engine class (`MassRepresentationActorManagement.h:27, 111`). Mass uses the class default object of this class (`MG/MassRepresentation/Public/MassRepresentationFragments.h:290`), so it keeps no state; it reaches the workload through `FMassEntityManager::GetWorld()` (`MassEntityManager.h:1353`) only to count the push |
+
+### E3. `SHStateRouter.h` / `.cpp` (changed in S3a)
+
+| Code | What it does, and why |
+|---|---|
+| `FSHAgentView::Lifecycle` | The actor's B1 component (null without an actor), read only by the B1 rule |
+| B1: `ActorState && Lifecycle && Lifecycle->IsHydrated() ? actor : entity` | The lifecycle pattern: the actor's components hold the state once a hydrate has filled them |
+| B3: `View.Entity(Channel)` | Entity-owned: actor-side code would read and write the entity, so the actor's copy is never used. B3 must show **no** incidents: a check of the rule and of the checker (`09`, S3a) |
+| B0 and B2: actor's copy if the entity has an actor | B2 adds the mirror and the push; the rule is B0's |
+| `IsImplemented`: B0 to B3 | SH is still refused before anything spawns (`05` D7) |
+
+### E4. `SHDemoAgent.h` / `.cpp` (changed in S3a)
+
+| Code | What it does, and why |
+|---|---|
+| `class ASHDemoAgent : public AActor, public IMassActorPoolableInterface` | Mass pools only actors that implement the interface and answer `CanBePooled` (`MG/MassActors/Private/MassActorSpawnerSubsystem.cpp:126–127`). The interface's three functions are BlueprintNativeEvents (`MG/MassActors/Public/MassActorPoolableInterface.h:22–29`): the engine calls `Execute_CanBePooled(Actor)`, which calls the C++ `…_Implementation`. Its generated default answers `false` (the engine's generated `MassActorPoolableInterface.generated.h:22–24`), which is why S2b's actor was never pooled |
+| `CanBePooled_Implementation()` | Asks the workload subsystem: `IsPoolingEnabled()` follows `-SHPooling=`. The engine's own pooling switch, `mass.spawning.actorpooling`, is on by default (`MassActorSpawnerSubsystem.cpp:24, 31`) |
+| `PrepareForPooling_Implementation()`, `PrepareForGame_Implementation()` | Forward to B1's component; they do nothing in other configurations |
+| `Lifecycle = CreateDefaultSubobject<USHLifecycleComponent>(TEXT("Lifecycle"));` | On every actor (E1) |
+
+### E5. `SHDemoStateTrait.h` / `.cpp` and `SHDemoTypes.h` (changed in S3a)
+
+| Code | What it does, and why |
+|---|---|
+| `USTRUCT() struct FSHMirrorTag : public FMassTag` | B2's marker. A tag: no memory per entity (`05` B1), so B2's archetype differs from the others by one bit |
+| `UPROPERTY() bool bAddMirrorTag = false;`, `if (bAddMirrorTag) BuildContext.AddTag<FSHMirrorTag>();` | The director sets it for B2 runs only. `UPROPERTY`, because the trait is a reflected object owned by the config asset |
+
+### E6. `SHWorkloadSubsystem.h` / `.cpp` (changed in S3a)
+
+| Code | What it does, and why |
+|---|---|
+| `FRunConfig::bPooling`, `bKeepLowRes`; `IsPoolingEnabled()` | The run's pooling answer for `CanBePooled` (E4), and the keep-low-res setting for the report header (`pooling=`, `keeplowres=`) |
+| `RequestCapturing(bool)` → applied in `BeginFrame()` | **Changed after the S3a code review.** The director asks on the `BenchStart` frame (on) and the `BenchEnd` frame (off); the switch takes effect at the next `BeginFrame`, the start of the next frame's simulation phase. So every counter, the simulation-point events and the baselines' copies included, covers whole frames: from the frame after `BenchStart` to the `BenchEnd` frame, the frames the CSV capture holds (`09`, S2b-7). S2b's `SetCapturing` switched mid-frame (`05` D7) |
+| `NoteBaselineCopy()`, CSV `SHWorkload/BaselineCopies`, report `baselinecopies=` | Counts each B1 hydrate or dehydrate and each B2 push, so every run shows that its baseline's path ran. `run_bench.py` fails a B1 or B2 run with none (E9) |
+
+### E7. `SHBenchmarkSubsystem.h` / `.cpp` (changed in S3a)
+
+| Code | What it does, and why |
+|---|---|
+| `-SHPooling=0\|1` (default 0), `-SHKeepLowRes=0\|1` (default 1) | The two switches of the correctness matrix and the H2 variant (`03`). Passed to the workload (pooling) and the visualization trait (keep-low-res), and written as CSV metadata |
+| `DemoTrait->bAddMirrorTag = Settings.Config == ESHConfig::B2;` | B2's mirror matches only B2's entities |
+| `Visualization->Params.bKeepLowResActors = Settings.bKeepLowRes;` | The engine default is `true` (`MassRepresentationFragments.h:198`); `false` is the H2 variant, where every Actor → Mesh switch releases the actor (`01b #5`) |
+| B2: `Visualization->Params.RepresentationActorManagementClass = USHB2ActorManagement::StaticClass();` | B2's push on spawn (E2). The engine allows replacing the class by default (`MassRepresentationFragments.h:169, 220`) |
+| `Workload->RequestCapturing(true)` at `BenchStart`, `(false)` at `BenchEnd` | See E6. `WriteReport()` on the frame after `BenchEnd`, when every count is final |
+
+### E8. `StateHandoff.Build.cs` (changed in S3a)
+
+| Line | What it does, and why |
+|---|---|
+| Public: `MassActors` (moved from private) | `SHDemoAgent.h`, a public header, now implements MassActors' `IMassActorPoolableInterface` |
+| Private: `MassCommon` | The `Behavior` and `SyncWorldToMass` group names, used only in `.cpp` files |
+
+### E9. Tools (changed in S3a): `run_bench.py`, `csv_stats.py`, `s3a_checks.bat`
+
+| Code | What it does, and why |
+|---|---|
+| `--pooling 0\|1`, `--keep-low-res 0\|1` → `-SHPooling=`, `-SHKeepLowRes=` | Run names follow `Benchmarks/README.md`: `…_P<pooling>[_K0][_park]_r<run>`. S2b's fixed `P0` is gone: pooling is now real |
+| `COPYING_BASELINES = ("B1", "B2")`, `is_failure()` | A B1 or B2 run whose report says `baselinecopies=0` failed: its baseline never ran (code review) |
+| `SUMMARY_COLUMNS` and the summary table gain `SHWorkload/BaselineCopies` | Each batch summary shows the baseline copies per run. `csv_stats.py` reports the column by default |
+| `s3a_checks.bat` | Builds, tests, the self-test, packaging, then five small `run_bench.py` batches: B3 with pooling off and on (`--expect-incidents none`), and B0–B2 with pooling off, on, and on with `bKeepLowResActors` off (`09`, S3a). Explicit `ERRORLEVEL` checks after every step |
+
+### E10. `Private\Tests\SHRouterTests.cpp`
+
+| Test | What it proves |
+|---|---|
+| `StateHandoff.Router.Rules` | For every channel: without an actor, every baseline reads the entity's copy; with an actor, B0 and B2 read the actor's, B1 the actor's only while hydrated (set through `FSHRouterTestAccess`), B3 always the entity's; B0–B3 are implemented and SH is not |

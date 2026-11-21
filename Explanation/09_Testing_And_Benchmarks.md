@@ -150,6 +150,62 @@ python -I -u ue_queue.py run --project P09 --label "P09 Phase 4: …" --timeout 
 
   (The "fatal" and "crash" words in those logs are the crash reporter's start-up lines, `Session CrashGUID` and "Custom abort handler registered", not failures.)
 
+## Step S3a · The baselines B1, B2, B3 and the workload switches (2026-11-21)
+
+**Job** `20261121_072916_4695ff` (357.0 s): `Tools\s3a_checks.bat`, which stops at the first failure. S3a-6 to S3a-10 are small `run_bench.py` batches (one run per configuration, N = 4,000, seed 1, 10 s warm-up, 30 s capture, flips every 4 s, checker on, packaged Development, pinned to `0xFFFF`). They are **functional checks of the baselines, not the baseline capture** (that is S3b, with full runs, rotation and statistics).
+
+| # | Check | Result |
+|---|---|---|
+| S3a-1 | Editor build: 0 errors, 0 warnings | ✅ `Result: Succeeded` (20.2 s) |
+| S3a-2 | Game build: 0 errors, 0 warnings | ✅ `Result: Succeeded` (33.9 s) |
+| S3a-3 | Automation tests `StateHandoff.*` | ✅ "Found 12 automation tests based on 'StateHandoff'" (S2b's 11 plus `StateHandoff.Router.Rules`), 12 × `Result={Success}`, "TEST COMPLETE. EXIT CODE: 0"; `Tests.log` 0 `Warning:`, 0 `Error:` |
+| S3a-4 | `csv_stats.py --selftest` | ✅ OK |
+| S3a-5 | Package Development | ✅ cook "Success - 0 error(s), 0 warning(s)", `BUILD SUCCESSFUL` |
+| S3a-6 | **B3 (entity-owned) shows no incidents**, pooling off. Batch `2026-11-21_084528_s3a_b3p0` | ✅ **0 incidents in 30,096 transitions** (priming run: 0 in 30,094) |
+| S3a-7 | **B3 shows no incidents**, pooling on. Batch `2026-11-21_084606_s3a_b3p1` | ✅ **0 incidents in 30,117 transitions** |
+| S3a-8 | B0, B1, B2, pooling off. Batch `2026-11-21_084626_s3a_p0` | ✅ all runs exit 0, 0 `Error:`, B1/B2 baselines made copies (table below) |
+| S3a-9 | B0, B1, B2, pooling on. Batch `2026-11-21_084721_s3a_p1` | ✅ as S3a-8 |
+| S3a-10 | B0, B1, B2, pooling on, `bKeepLowResActors` off (H2 variant). Batch `2026-11-21_084819_s3a_k0` | ✅ as S3a-8 |
+
+**What the functional runs show** (one 30 s run each, so no statistics; the reports are `Benchmarks/Raw/<batch>_<Config>_…_incidents.csv`):
+
+| Run | Transitions | Incidents (per 1,000) | Lost / Duplicated / Corrupted | Slots leaked / double-held | Baseline copies |
+|---|---|---|---|---|---|
+| B0, pooling off | 30,095 | 27,458 (912.4) | 22,340 / 3,967 / 106 | 1,042 / 3 | 0 |
+| B1, pooling off | 30,092 | 15,769 (524.0) | 7,601 / 7,210 / 39 | 492 / 427 | 7,144 |
+| B2, pooling off | 30,092 | 57 (1.89) | 47 / 0 / 1 | 4 / 5 | 3,719 |
+| B3, pooling off | 30,096 | 0 | 0 / 0 / 0 | 0 / 0 | 0 |
+| B0, pooling on | 30,117 | 29,422 (976.9) | 17,840 / 8,416 / 1,526 | 1,023 / 617 | 0 |
+| B1, pooling on | 30,117 | **0** | 0 / 0 / 0 | 0 / 0 | 7,144 |
+| B2, pooling on | 30,117 | 58 (1.93) | 48 / 0 / 1 | 4 / 5 | 3,951 |
+| B3, pooling on | 30,117 | 0 | 0 / 0 / 0 | 0 / 0 | 0 |
+| B0, pooling on, K0 | 30,116 | 31,975 (1,061.7) | 18,291 / 10,028 / 1,935 | 1,033 / 688 | 0 |
+| B1, pooling on, K0 | 30,116 | **0** | 0 / 0 / 0 | 0 / 0 | 7,755 |
+| B2, pooling on, K0 | 30,116 | 51 (1.69) | 44 / 0 / 0 | 3 / 4 | 4,400 |
+
+Reading them (mechanisms, checked in the engine source; the numbers wait for S3b's full capture):
+- **B3 = 0 everywhere**, as its rule demands, over 60,213 transitions with 196,873 writes per run: the checker raises nothing where nothing can go wrong (with S2b-8's parked run, two independent no-false-positive checks).
+- **B1 without pooling fails at the release** (incidents on ActorToNone and MeshToNone, Lost and Duplicated in equal measure, 90% within 4 frames of the transition). Mass releases actors at the end of the PrePhysics phase within a time slice (`ProcessPendingDestruction`, `MG/MassActors/Private/MassActorSpawnerSubsystem.cpp:500–544`, called from `OnPrePhysicsPhaseFinished`, `:585–595`); actors past the slice that **can't be pooled** are only deactivated and destroyed on a later frame (`:527–542`). Until then the game reads the stale entity copy (*lost*); when `EndPlay` finally dehydrates, the entity jumps to the actor's older history (*duplicated*). This is H1's mechanism.
+- **B1 with pooling showed 0 incidents**, the opposite of what `02` §7 expected ("the path lifecycle code misses"). Mass offers **every** queued actor to the pool in the release frame, inside or past the time slice (`:514–524`, `:527–542`), so a pool-aware `PrepareForPooling` runs before the frame's FrameEnd sweep; and until a reused actor has hydrated, B1's rule reads the entity. A lifecycle hand-off that is *not* pool-aware would still fail here (`01b #4`). To confirm in S3b with full runs, and to state in the write-up as found, not as predicted.
+- **B0 with pooling** gains *corrupted* incidents (106 → 1,526) and double-held slots (3 → 617): pooled actors carry the previous agent's state into the next one (H4).
+- **B2 is low but not zero** (≈ 1.9 per 1,000): its incidents are *lost* writes at ActorToNone and MeshToNone, the writes made after the frame-start mirror in a release frame (H3).
+- **K0** (no kept actors) adds ActorToMesh releases: B0 rises to 1,061.7 per 1,000; B1 and B2 barely change.
+
+**The two items carried from S2b:**
+- *The checker's window now equals the CSV's.* Every S3a report says `frames=1800`, and its totals equal the CSV's per-frame sums exactly; for B1 with pooling off: 1,800 rows, 30,092 transitions, 15,769 incidents, 196,792 events, 7,144 baseline copies in both. ✅ Closed.
+- *Do decided writes depend on processing order?* The two B3 runs (pooling off and on, same camera path, no re-sync because there are no incidents) applied exactly the same 196,873 writes. So configurations that share a camera path see the same decisions; differences between runs come from the checker's re-syncs (correctness runs) and from different camera paths (S2b's parked run). The claim logic stays as it is. ✅ Closed, with this evidence.
+
+**Audit trail for S3a:**
+- `code-review` (medium, Skill tool, on the staged diff, before the build): **6 findings, 2 important and 4 nits.**
+  1. *important, kept by design:* B1's dehydrate runs in `EndPlay`, which Mass's queued, budgeted destruction can delay by frames, so it can overwrite newer entity writes. This is hypothesis H1 (`01` §4), the weakness B1 exists to measure, so it was **not** changed; it is now stated in the code, `05` E1 and `02` §14;
+  2. *important:* the capture switch took effect mid-frame (in the director's tick, after the simulation point), so events and baseline copies were counted over a window shifted by one frame → `RequestCapturing`, applied at the start of the next frame (`BeginFrame`);
+  3. the docs for the step were not written yet at review time (as the review request said) → written in the same commit;
+  4. the router test couldn't check B1's hydrated case → a `friend` test accessor and both B1 cases;
+  5. nothing proved B1 and B2 actually ran → `run_bench.py` fails a B1/B2 run whose report says `baselinecopies=0`; the column is in the summaries;
+  6. `keeplowres` was missing from the report header → added.
+- `simplify`: applied by hand (the skill starts sub-agents, which this project's brief doesn't allow). No change. Reviewed: the per-agent `FindComponentByClass` lookups (now two per agent with an actor per processor pass, in every configuration, so the cost is the same everywhere; S4's hand-off caches components per binding); the three copies by reflection in B1 and B2 (one loop over the channel types, shared shape; a shared helper would hide the direction of each copy); B2's mirror as plain struct assignments (typed, no reflection, in the per-frame path).
+- **Tooling, recorded because it touched the tree:** an edit script for the review fixes was run twice; its guard ("skip if the old text is gone") re-applied insertions whose new text contains the old, which duplicated six lines (in the director, the workload header, `csv_stats.py`, `run_bench.py` and the router test). All were found before the build by a repeated-line scan of the staged files and removed. The opposite guard ("skip if the new text is present") silently skips an edit whose new text is contained in its old text: it skipped one edit of S3a's first script (the director's old capture switch, found and removed before the review) and, in S2b, the removal of one line of `02`'s diagram (an orphan "OR" node, removed now). Every edit script is now checked for both cases before it runs.
+
 ---
 
 ## Benchmark batches
