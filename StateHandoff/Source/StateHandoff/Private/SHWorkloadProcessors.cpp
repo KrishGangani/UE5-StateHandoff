@@ -12,6 +12,7 @@
 #include "SHDemoTypes.h"
 #include "SHLifecycleComponent.h"
 #include "SHMassProcessors.h"
+#include "SHStateHandoff.h"
 #include "SHStateRouter.h"
 #include "SHWorkloadSubsystem.h"
 
@@ -30,6 +31,8 @@ namespace SHWorkloadProcessors
 		// ReadWrite only to get a mutable actor pointer: the actor's component is written, the fragment never is.
 		Query.AddRequirement<FMassActorFragment>(EMassFragmentAccess::ReadWrite);
 		Query.AddTagRequirement<FSHDemoAgentTag>(EMassFragmentPresence::All);
+		// Only SH's entities have it; the view is empty for the others (optional requirement).
+		Query.AddRequirement<FSHHandoffFragment>(EMassFragmentAccess::ReadOnly, EMassFragmentPresence::Optional);
 	}
 
 	/** One chunk's fragment views, fetched once per chunk; Make(Index) builds one agent's view from them. */
@@ -41,6 +44,7 @@ namespace SHWorkloadProcessors
 		TArrayView<FSHMemoryState> Memory;
 		TArrayView<FSHReservationState> Reservation;
 		TArrayView<FMassActorFragment> Actors;
+		TConstArrayView<FSHHandoffFragment> Handoffs;
 
 		explicit FChunkViews(FMassExecutionContext& Context)
 			: Ids(Context.GetFragmentView<FSHAgentIdFragment>())
@@ -49,6 +53,7 @@ namespace SHWorkloadProcessors
 			, Memory(Context.GetMutableFragmentView<FSHMemoryState>())
 			, Reservation(Context.GetMutableFragmentView<FSHReservationState>())
 			, Actors(Context.GetMutableFragmentView<FMassActorFragment>())
+			, Handoffs(Context.GetFragmentView<FSHHandoffFragment>())
 		{
 		}
 
@@ -64,6 +69,7 @@ namespace SHWorkloadProcessors
 				// Both lookups in every configuration, so every configuration pays the same per-agent cost.
 				View.ActorState = Actor->FindComponentByClass<USHAgentStateComponent>();
 				View.Lifecycle = Actor->FindComponentByClass<USHLifecycleComponent>();
+				View.bHandoffBound = Handoffs.Num() > 0 && Handoffs[Index].BoundActor.Get() == Actor;
 			}
 			return View;
 		}

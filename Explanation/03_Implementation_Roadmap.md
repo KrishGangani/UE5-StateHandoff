@@ -10,7 +10,7 @@
 
 ---
 
-**Progress (2026-11-21):** Phases 1–3 ✅. **Phase 4 ✅** (F1–F4; one queue job, all five checks passed, `09`). **S1 ✅** (code review and simplify done; `09`). **S2a ✅** (10 automation tests pass; code review and simplify done; `09`). **S2b ✅** (B0 shows incidents, a parked camera shows none; `09`). **S3a ✅** (B3 shows no incidents with pooling off and on; B0–B2 run in every variant; the two items carried from S2b are closed; `09`). Next: **S3b**.
+**Progress (2026-11-21):** Phases 1–3 ✅. **Phase 4 ✅** (F1–F4; one queue job, all five checks passed, `09`). **S1 ✅** (code review and simplify done; `09`). **S2a ✅** (10 automation tests pass; code review and simplify done; `09`). **S2b ✅** (B0 shows incidents, a parked camera shows none; `09`). **S3a ✅** (B3 shows no incidents with pooling off and on; B0–B2 run in every variant; the two items carried from S2b are closed; `09`). **Owner direction (2026-11-21): finish now.** S3b (the full baseline capture) was cancelled and is not run; S4–S5 were built as a minimal v1 (`05` Part G) and checked in one queue job; S6–S8 are not built. `09` has the success-criteria table, with what is unmeasured marked.
 
 **Change to the plan (S3 split, 2026-11-21):** S3 is split the same way: **S3a**, the three baselines and the two workload switches with functional checks, and **S3b**, calibration and the baseline capture (the measurement batches), so the capture runs on code that has already passed its review and checks.
 

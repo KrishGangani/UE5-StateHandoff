@@ -9,8 +9,11 @@ public class StateHandoffCore : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Public: SHContractTypes.h (a public header) derives from MassCore's FMassFragment. The other Mass modules
-		// (MassEntity, MassSpawner, MassActors, MassRepresentation) are added in S4-S6, with the first code that uses them.
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "MassCore" });
+		// Public: the public headers derive from MassCore's FMassFragment, MassEntity's UMassProcessor and MassSpawner's
+		// UMassEntityTraitBase (SHContractTypes.h, SHStateHandoff.h).
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "MassCore", "MassEntity", "MassSpawner" });
+
+		// Private: only SHStateHandoff.cpp uses them (FMassActorFragment; FMassRepresentationFragment and the group names).
+		PrivateDependencyModuleNames.AddRange(new string[] { "MassActors", "MassRepresentation" });
 	}
 }

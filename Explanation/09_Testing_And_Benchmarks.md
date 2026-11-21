@@ -206,8 +206,37 @@ Reading them (mechanisms, checked in the engine source; the numbers wait for S3b
 - `simplify`: applied by hand (the skill starts sub-agents, which this project's brief doesn't allow). No change. Reviewed: the per-agent `FindComponentByClass` lookups (now two per agent with an actor per processor pass, in every configuration, so the cost is the same everywhere; S4's hand-off caches components per binding); the three copies by reflection in B1 and B2 (one loop over the channel types, shared shape; a shared helper would hide the direction of each copy); B2's mirror as plain struct assignments (typed, no reflection, in the per-frame path).
 - **Tooling, recorded because it touched the tree:** an edit script for the review fixes was run twice; its guard ("skip if the old text is gone") re-applied insertions whose new text contains the old, which duplicated six lines (in the director, the workload header, `csv_stats.py`, `run_bench.py` and the router test). All were found before the build by a repeated-line scan of the staged files and removed. The opposite guard ("skip if the new text is present") silently skips an edit whose new text is contained in its old text: it skipped one edit of S3a's first script (the director's old capture switch, found and removed before the review) and, in S2b, the removal of one line of `02`'s diagram (an orphan "OR" node, removed now). Every edit script is now checked for both cases before it runs.
 
+## Final job · StateHandoff v1 (S4–S5 minimal), 2026-11-21
+
+**Job** `20261121_103528_3815df` (174.5 s): `Tools\s5_checks.bat`, the one queue job the owner's direction allowed.
+
+| # | Check | Result |
+|---|---|---|
+| S5-1 | Editor build | ✅ `Result: Succeeded`, 0 errors, 0 warnings |
+| S5-2 | Game build | ✅ `Result: Succeeded`, 0 errors, 0 warnings |
+| S5-3 | Automation tests | ✅ "Found 12 automation tests based on 'StateHandoff'", 12 × `Result={Success}` (the router test now covers SH), "TEST COMPLETE. EXIT CODE: 0"; 0 `Warning:` in `Tests.log` |
+| S5-4 | Package | ✅ cook "Success - 0 error(s), 0 warning(s)", `BUILD SUCCESSFUL` |
+| S5-5 | One short batch, `2026-11-21_103723_s5_sh`: B0, B2, SH; N = 4,000, pooling on, checker on, one 30 s run each | ✅ exit 0, 0 `Error:` each. **SH: 0 incidents in 29,871 transitions**; B0: 29,454 in 30,117 (978.0 per 1,000); B2: 59 in 30,115 (1.96 per 1,000) |
+
+SH's hand-off in that run (CSV `StateHandoff/*`, 1,800 frames; checker on, so not a timing result): processor time per frame median 0.036 ms, p95 0.079, p99 0.243, max 0.549 ms; about 3,880 binds and 3,880 unbinds in total (mean 2.15 per frame each), up to 249 binds and 393 unbinds in one frame (flips).
+
+## Success criteria: what the existing data says
+
+Every number below comes from the batches named, all **single 30 s functional runs** (one run per configuration, checker on). None is the planned measurement batch (S3b was cancelled), so none carries a [min–max] across runs. "Not measured" means no data exists.
+
+| # | Target | Result | Status |
+|---|---|---|---|
+| SC1 | SH 0 incidents, ≥ 20,000 transitions per config per batch, pooling off and on | **0 in 29,871 transitions** (pooling on, `s5_sh`); 95% upper bound 3 / 29,871 ≈ **0.10 per 1,000**. Pooling off: not measured for SH | ✅ pooling on (one run); pooling off not measured |
+| SC2 | 100% of injected faults detected; B0 shows incidents | Fault injection not built: **not measured**. B0 shows incidents in every run (912–978 per 1,000) | ❌ not measured (sanity part ✅) |
+| SC3 | B1 or B2 > 0 incidents under default settings | **B1, pooling off: 524.0 per 1,000** (`s3a_p0`); **B2: 1.9–2.0 per 1,000** in every run (`s3a_p0`, `s3a_p1`, `s5_sh`). B1, pooling on: 0 (`s3a_p1`) | ✅ |
+| SC4 | Hand-off per transition: median ≤ 2 µs, p99 ≤ 10 µs | Per-transition timing not built: **not measured**. Only the processor's time per frame exists (median 0.036 ms over 4,000 entities, p99 0.243 ms; checker on) | not measured |
+| SC5 | Flip windows: SH p99 ≤ B0 + 0.5 ms; no extra frames > 33.3 ms | p99 in the 60 frames after each flip: B0 6.02 ms, B2 6.02 ms, SH 6.29 ms (+0.27 ms); max frame 8.8 / 9.1 / 8.3 ms, so no frame > 33.3 ms (`s5_sh`) | ✅ indicative only (one run, checker on) |
+| SC6 | Parked, N = 4,000: SH game-thread median ≤ B0 + 0.10 ms | No parked SH run: **not measured** | not measured |
+| SC7 | SH bookkeeping ≤ 32 bytes per entity over B3 | `FSHHandoffFragment` holds one `TWeakObjectPtr` (8 bytes) plus a tag (no memory) **[inferred from the types; the archetype dump was not run]**: **not measured** | not measured |
+| SC8 | 0 crashes, ensures or errors; the edge-case tests | 0 `Error:` and 0 `Warning:` lines in every packaged run's game log (S2b, S3a, S5); the four edge-case tests were not built | partial (runs ✅, edge cases not measured) |
+
 ---
 
 ## Benchmark batches
 
-*(pending)*. The first measurement batch is the S3 baseline capture, recorded here with its batch name, as in [Benchmarks/README.md](../Benchmarks/README.md). The three S2b batches (`s2b_orbit`, `s2b_park`, `s2b_nocheck`) are functional checks, recorded in the S2b table above.
+No measurement batch was run: the S3b capture was cancelled when the project was closed (owner direction, 2026-11-21). Every batch recorded above is a functional check; [Benchmarks/README.md](../Benchmarks/README.md) lists them.

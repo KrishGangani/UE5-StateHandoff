@@ -2,7 +2,7 @@
 
 Every number in this project's write-up must trace back to a file in this folder. The method is in [../Explanation/01_Problem_Analysis.md §7](../Explanation/01_Problem_Analysis.md); the planned matrices are in [../Explanation/03_Implementation_Roadmap.md](../Explanation/03_Implementation_Roadmap.md). The results, batch by batch, go into [../Explanation/09_Testing_And_Benchmarks.md](../Explanation/09_Testing_And_Benchmarks.md).
 
-**Status (2026-11-21): only functional-check batches have run**: S2b's `s2b_orbit`, `s2b_park`, `s2b_nocheck` (one B0 run each, to prove the instrument) and S3a's five (one run per baseline, to prove the baselines). None is a measurement. The first measurement batch is the baseline capture in step S3, before any hand-off code exists.
+**Status (2026-11-21): only functional-check batches have run**: S2b's `s2b_orbit`, `s2b_park`, `s2b_nocheck` (one B0 run each, to prove the instrument) and S3a's five (one run per baseline, to prove the baselines). None is a measurement. The last is S5's `s5_sh` (B0, B2, SH, one run each). The planned measurement batches (S3b) were cancelled by the owner's direction and are not run. The first measurement batch is the baseline capture in step S3, before any hand-off code exists.
 
 ## Measurement rules
 
@@ -61,3 +61,4 @@ Warm-up excluded:  10 s     Capture length: 60 s     Runs per combination: numbe
 | `2026-11-21_084626_s3a_p0` | B0, B1, B2 | 4,000 | 1 each | S3a-8 functional check: pooling off. Not a measurement | [summary](Summaries/2026-11-21_084626_s3a_p0_summary.md) |
 | `2026-11-21_084721_s3a_p1` | B0, B1, B2 | 4,000 | 1 each | S3a-9 functional check: pooling on. Not a measurement | [summary](Summaries/2026-11-21_084721_s3a_p1_summary.md) |
 | `2026-11-21_084819_s3a_k0` | B0, B1, B2 | 4,000 | 1 each | S3a-10 functional check: pooling on, `bKeepLowResActors` off (H2). Not a measurement | [summary](Summaries/2026-11-21_084819_s3a_k0_summary.md) |
+| `2026-11-21_103723_s5_sh` | B0, B2, SH | 4,000 | 1 each | S5-5 functional check: StateHandoff's first run, pooling on, checker on. Not a measurement | [summary](Summaries/2026-11-21_103723_s5_sh_summary.md) |

@@ -9,6 +9,7 @@
 | C | S2a (the instrument, as plain C++) | Plugin `SHContractTypes.h`, `SHInvariantChecker`, tests; game `SHDemoState`, tests; both `Build.cs` changes; `Tools\run_tests.bat` |
 | D | S2b (the instrument in the world) | `SHDemoTypes` (changed), `SHAgentStateComponent`, `SHStateRouter`, `SHWorkloadSubsystem`, `SHWorkloadProcessors`; trait, agent and director changes; `Build.cs`; `Tools\csv_stats.py`, `run_bench.py`, `s2b_checks.bat` |
 | E | S3a (the baselines B1, B2, B3 and the workload switches) | `SHLifecycleComponent`, `SHB2Mirror`; router, agent, trait, types, workload and director changes; `Build.cs`; `run_bench.py`, `csv_stats.py`, `s3a_checks.bat`; `SHRouterTests.cpp` |
+| G | S4–S5, minimal v1 (StateHandoff itself) | Plugin `SHStateHandoff.h/.cpp`, plugin `Build.cs`; router, workload processors, director, router test; `run_bench.py`, `class_table.py`, `s5_checks.bat` |
 
 ---
 
@@ -630,7 +631,7 @@ S3a builds the three remaining baselines exactly as `02` §9 describes them, plu
 | B1: `ActorState && Lifecycle && Lifecycle->IsHydrated() ? actor : entity` | The lifecycle pattern: the actor's components hold the state once a hydrate has filled them |
 | B3: `View.Entity(Channel)` | Entity-owned: actor-side code would read and write the entity, so the actor's copy is never used. B3 must show **no** incidents: a check of the rule and of the checker (`09`, S3a) |
 | B0 and B2: actor's copy if the entity has an actor | B2 adds the mirror and the push; the rule is B0's |
-| `IsImplemented`: B0 to B3 | SH is still refused before anything spawns (`05` D7) |
+| `IsImplemented`: B0 to B3 | SH was still refused before anything spawned (`05` D7); all five since S5 (G3) |
 
 ### E4. `SHDemoAgent.h` / `.cpp` (changed in S3a)
 
@@ -687,3 +688,47 @@ S3a builds the three remaining baselines exactly as `02` §9 describes them, plu
 | Test | What it proves |
 |---|---|
 | `StateHandoff.Router.Rules` | For every channel: without an actor, every baseline reads the entity's copy; with an actor, B0 and B2 read the actor's, B1 the actor's only while hydrated (set through `FSHRouterTestAccess`), B3 always the entity's; B0–B3 are implemented and SH is not |
+
+---
+
+## Part G · S4–S5 (minimal v1): StateHandoff itself
+
+On the owner's direction (2026-11-21) the remaining steps were cut to the smallest working version of the system: the contract's fragment and tag, a trait, a channel registry with reflection copies, and the commit-time hand-off processor, plus SH's router rule. Not built: the pre-spawn capture, the `OnEndPlay` safety net, the destructor observer, fault injection and the debug view (S6–S8; `09` marks what that leaves unmeasured).
+
+### G1. Plugin `Public\SHStateHandoff.h` / `Private\SHStateHandoff.cpp`
+
+| Code | What it does, and why |
+|---|---|
+| `USTRUCT() struct FSHHandoffFragment : FMassFragment { UPROPERTY(Transient) TWeakObjectPtr<AActor> BoundActor; }` | The contract's state per entity: which actor owns the channels now (`ActorWhileBound`); null = the entity owns them. A weak pointer, so a destroyed actor reads as null instead of dangling. 8 bytes per entity **[inferred from the type; not measured, SC7]** |
+| `USTRUCT() struct FSHHandoffTag : FMassTag` | Only tagged entities match the hand-off processor, so StateHandoff touches nothing it doesn't manage |
+| `USHStateHandoffTrait::BuildTemplate` | Adds the fragment and the tag. The channels are the game's own fragments (types deriving from `FSHChannelFragment`), which the demo trait already adds |
+| `USHStateHandoffSubsystem::RegisterChannels(ComponentClass, Properties)` | Resolves each property once by reflection: `FindPropertyByName`, `CastField<FStructProperty>`, and the struct must derive from `FSHChannelFragment`; two channels of one type are refused (the entity has one fragment per type). Any problem logs an error and registers nothing, so a bad contract can't half-work |
+| `RestoreToActor` / `CaptureFromActor` | The two copies: for each channel, the entity's fragment found by type (`FMassEntityManager::GetFragmentDataStruct`) and the component's property (`FStructProperty::ContainerPtrToValuePtr`), copied whole with `UScriptStruct::CopyScriptStruct`, version included. So a pooled actor's leftovers from another agent never survive a bind (H4) |
+| `PublishFrame()`: `CSV_CUSTOM_STAT(StateHandoff, Binds / Unbinds / HandoffMs, …)` | One publish per frame: hand-offs and the processor's time (`06` §23) |
+| `USHHandoffProcessor`: group `Representation`, `ExecuteAfter VisualizationProcessing`, game thread, `Client \| Standalone` | Runs right after Mass has finalised the frame's representation (`MG/MassRepresentation/Public/MassRepresentationTypes.h:28–30`) and before the end of the PrePhysics phase, where queued releases are processed (`MG/MassActors/Private/MassActorSpawnerSubsystem.cpp:585–595`): a released actor is still alive here, so its state is captured before it is destroyed or pooled |
+| `Execute`, per entity: `Now` = the actor if `IsValidActorRepresentation(CurrentRepresentation)`, else null; if `Now != BoundActor`: capture from the old actor, restore into the new one | The whole hand-off. A kept, disabled actor (the entity shown as a mesh) is not an owner (`02` §7), so the entity owns the state during ISM periods and the actor is restored when it comes back. Fragment pointers aren't held across the copies: the copies go through the entity manager by handle (`ChunkContext.GetEntity(It)`), and nothing here changes archetypes |
+| Not covered (S6, not built) | An actor released **immediately** inside the representation processor (a template swap, `OnPreActorSpawn`) or destroyed by gameplay while bound is not captured: the weak pointer is null by the time this processor runs. The demo uses one actor class for both resolutions, so it has no template swaps |
+
+### G2. Plugin `StateHandoffCore.Build.cs` (changed)
+
+| Line | What it does, and why |
+|---|---|
+| Public: `MassEntity`, `MassSpawner` (with `MassCore`) | `SHStateHandoff.h` derives from `UMassProcessor` and `UMassEntityTraitBase` |
+| Private: `MassActors`, `MassRepresentation` | Only the `.cpp` uses `FMassActorFragment`, `FMassRepresentationFragment` and the group names |
+
+### G3. Game changes
+
+| Code | What it does, and why |
+|---|---|
+| `SHRouter`, SH rule: `ActorState && bHandoffBound ? actor : entity`; `IsImplemented`: all five | The contract seen from gameplay: the actor's copy only while StateHandoff has bound that actor |
+| `FSHAgentView::bHandoffBound`, filled by `FChunkViews` from an **optional** `FSHHandoffFragment` requirement | Only SH's entities have the fragment; for the others the view is empty and the flag stays false (`06` §30) |
+| Director, SH: `RegisterChannels(USHAgentStateComponent::StaticClass(), {Health, Cooldown, Memory, Reservation})` before spawning, then `USHStateHandoffTrait` in the entity config | A failed registration is an invalid run (forced exit 3 with `-SHExit`) |
+| `SHRouterTests.cpp`: SH bound → actor, not bound → entity; SH implemented | The rule, without a world |
+
+### G4. Tools (changed)
+
+| File | What it does, and why |
+|---|---|
+| `run_bench.py`: `baseline_idle` requires `transitions > 0` | A parked run has no representation changes, so a baseline with no copies there is correct |
+| `class_table.py` | Prints the per-class incident table of any batch from its manifest alone (manifests are in git), so `09`'s per-class numbers can be re-derived without the raw captures |
+| `s5_checks.bat` | The final queue job: both builds, every automation test, the package, and one short batch (B0, B2, SH; one 30 s run each) |

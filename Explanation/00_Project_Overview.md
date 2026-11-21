@@ -2,7 +2,7 @@
 
 > *"This was the problem. This was my investigation. This was my solution. These were my technical decisions. This was how I measured the results."*
 
-**Status (2026-11-21):** Phases 1–4 are done: problem analysis (`01`), verified research (`01b`), final architecture v1.0 (`02`), build steps (`03`), and the UE project foundation (built and packaged with Mass enabled, `09`). Phase 5 is in progress: S1 (the Mass workload: entities switching between actor, instanced mesh and none) S2a (the invariant checker and the demo's state rules, unit-tested) S2b (the checker running in the game: it finds state loss in the stock configuration and none with a parked camera) and S3a (baselines B1–B3 and the workload switches; B3, entity-owned, shows no incidents) are done (`09`). No benchmark results exist yet.
+**Status (2026-11-21): v1 complete (owner direction: finish now).** Phases 1–4 done; Phase 5 built S1–S3a in full and S4–S5 as a minimal v1 (the commit-time hand-off); S6–S8 not built. StateHandoff showed 0 incidents in 29,871 transitions in its one run, against 978 per 1,000 for stock Mass. Results and what is unmeasured: `09`.
 
 ---
 

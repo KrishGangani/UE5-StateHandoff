@@ -75,6 +75,15 @@
 | A baseline that silently never runs (wrong tag, class not applied, wrong configuration check) | Its results look like B0's | Count the baseline's own copies; `run_bench.py` fails a B1/B2 run with none (`05` E6, E9) | The report's `baselinecopies=` |
 | Switching a counter on in the middle of a frame | Some counters cover one frame more or less than the CSV | Switch at the start of a frame (`RequestCapturing`, applied in `BeginFrame`, `05` E6) | Compare the report's totals with the CSV's per-frame sums |
 
+## StateHandoff itself (S5)
+
+| Mistake | How to spot it | How to prevent it | How to debug it |
+|---|---|---|---|
+| Treating a kept, disabled actor as the owner | Writes go to an actor the game no longer shows, and come back stale | Bind only while the committed representation is an actor (`05` G1) | `StateHandoff/Binds` and `Unbinds` around ISM periods |
+| Capturing after the release has been processed | The released actor is gone (weak pointer null): lost state | Run after `VisualizationProcessing` and before the end of PrePhysics, where releases are processed | The checker's *lost* count at ActorToNone |
+| Searching channels by name every hand-off | Hand-off time grows with the number of channels and properties | Resolve once at registration (`06` §29) | `StateHandoff/HandoffMs` |
+| A registration that half-works | Some channels move, others silently don't | Validate everything, register nothing on any error | The `LogSHHandoff` errors |
+
 ## Mass representation hazards (from Phase 2, to be turned into tests)
 
 | Mistake | How to spot it | How to prevent it | How to debug it |

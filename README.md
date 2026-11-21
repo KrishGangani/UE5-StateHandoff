@@ -4,11 +4,11 @@
 
 **Domain:** Large-scale gameplay architecture · data-oriented design · **Difficulty:** ★★★★★ · **Engine:** UE 5.8.4
 
-> **Status: in progress. There are no results yet.** Phases 1–4 are done: problem analysis, verified research, final architecture, and the UE project foundation (built with 0 errors and 0 warnings, packaged with MassGameplay enabled, smoke-tested). Phase 5 is in progress: S1 (the Mass workload skeleton), S2a (the invariant checker and the demo's state rules, as unit-tested C++) S2b (the checker running in the game, proven on the stock configuration) and S3a (the three other baselines and the pooling and kept-actor switches, functionally checked) are done. Sections marked *(pending)* are filled in only from real measurements, in the phase named. The success criteria are **targets fixed before any code exists, not results**.
+> **Status: v1 complete (2026-11-21).** The workload, the invariant checker, four baselines and a minimal StateHandoff (the commit-time hand-off) are built, tested (12 automation tests) and packaged with 0 warnings. The numbers below come from **single 30-second functional runs**, not the planned measurement batches, which were cancelled when the project was closed; what is unmeasured is marked in [09](Explanation/09_Testing_And_Benchmarks.md). The success criteria were fixed before any code.
 
 | Phase | 1 Problem | 2 Research | 3 Architecture | 4 Foundation | 5 Implementation | 6 Explanation | 7 Testing | 8 Profiling | 9 Review | 10 Portfolio |
 |---|---|---|---|---|---|---|---|---|---|---|
-| State | ✓ | ✓ | ✓ final | ✓ | in progress (4 of 10 steps done) | ongoing | — | — | — | — |
+| State | ✓ | ✓ | ✓ final | ✓ | ✓ v1 (S1–S3a in full, S4–S5 minimal, S6–S8 not built) | ✓ | functional runs | not run | per step | ✓ concise |
 
 ---
 
@@ -46,21 +46,36 @@ Full definitions and reasons: [01_Problem_Analysis.md §6.4](Explanation/01_Prob
 
 Final (v1.0): [Explanation/02_System_Architecture.md](Explanation/02_System_Architecture.md) §5–6 (mermaid).
 
-## Before / after comparison
+## Results (single functional runs)
 
-*(pending, Phase 8)*. Five configurations on one fixed workload: B0 stock, B1 Epic's lifecycle pattern (pool-aware), B2 per-frame mirror, B3 entity-owned, SH StateHandoff.
+The same workload in every configuration: 4,000 Mass agents, a camera that orbits and jumps between two hot spots every 4 s, seeded gameplay events on every agent, and an independent checker that compares each agent's state with a reference model after every frame.
 
-## Benchmark results
+![Divergence incidents per 1,000 transitions](Media/incidents_per_1000.svg)
 
-*(pending, Phase 8)*. Raw data and protocol: [Benchmarks/](Benchmarks/README.md).
+| Configuration | Transitions | Incidents per 1,000 | Batch |
+|---|---|---|---|
+| B0 stock (state on the actor) | 30,117 | 978.0 | `s5_sh` |
+| B1 Epic's lifecycle pattern, pooling off | 30,092 | 524.0 | `s3a_p0` |
+| B1 Epic's lifecycle pattern (pool-aware), pooling on | 30,117 | 0 | `s3a_p1` |
+| B2 per-frame mirror + push on spawn | 30,115 | 1.96 | `s5_sh` |
+| B3 entity-owned (no actor copy) | 30,117 | 0 | `s3a_b3p1` |
+| **SH StateHandoff** | **29,871** | **0** (95% upper bound ≈ 0.10) | `s5_sh` |
 
-## Recorded demonstration
+All with pooling on unless stated, checker on, one 30 s run each. Why B1 depends on pooling: Mass destroys released actors in a time-sliced queue, so `EndPlay` can come frames late; with pooling, every queued actor is pooled in the release frame and a pool-aware `PrepareForPooling` runs in time ([09](Explanation/09_Testing_And_Benchmarks.md), S3a).
 
-*(pending, Phase 10)*. B0 vs SH on the same camera flips, with a live counter of transitions and divergence incidents.
+![p99 frame time in flip windows](Media/flip_p99_frame_ms.svg)
+
+In the 60 frames after each camera flip, SH's p99 frame time was 6.29 ms against B0's 6.02 ms (+0.27 ms, inside SC5's 0.5 ms bound), with no frame above 8.3 ms. That run had the checker on, so it is indicative, not a timing result. StateHandoff's own processor took 0.036 ms per frame at the median and 0.243 ms at p99 for 4,000 entities.
+
+**Success criteria** ([09](Explanation/09_Testing_And_Benchmarks.md) has the full table): SC1 ✅ for pooling on (one run); SC3 ✅; SC5 ✅ indicative; SC8 partial; **SC2, SC4, SC6, SC7 not measured** (fault injection, per-transition timing, the parked timing run and the memory dump were not built or run).
+
+Raw data and protocol: [Benchmarks/](Benchmarks/README.md).
 
 ## Scope and limits
 
 Single-player only: there is no Iris path for Mass entity replication in UE 5.8.4 (verified in the source). Mass is **Experimental** and was restructured in 5.7 and 5.8, so everything is pinned to 5.8.4. CitySample is used as a reference only.
+
+v1 limits: StateHandoff does not yet capture an actor released immediately (a template swap) or destroyed by gameplay while bound; there is no fault injection, per-transition timing or debug view; the demo's four channels stand in for GAS and blackboards. The growth path is in [12](Explanation/12_Future_Scalability.md).
 
 ## Source code
 

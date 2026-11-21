@@ -22,10 +22,12 @@
 #include "Misc/Crc.h"
 #include "Misc/Parse.h"
 #include "ProfilingDebugging/CsvProfiler.h"
+#include "SHAgentStateComponent.h"
 #include "SHB2Mirror.h"
 #include "SHDemoAgent.h"
 #include "SHDemoStateTrait.h"
 #include "SHDemoTypes.h"
+#include "SHStateHandoff.h"
 #include "SHStateRouter.h"
 #include "SHWorkloadSubsystem.h"
 #include "Stats/Stats.h"
@@ -170,6 +172,10 @@ void USHBenchmarkSubsystem::BuildEntityConfig()
 	USHDemoStateTrait* DemoTrait = NewObject<USHDemoStateTrait>(EntityConfig);
 	DemoTrait->bAddMirrorTag = Settings.Config == ESHConfig::B2; // B2's mirror processor matches only tagged entities
 	Config.AddTrait(*DemoTrait);
+	if (Settings.Config == ESHConfig::SH)
+	{
+		Config.AddTrait(*NewObject<USHStateHandoffTrait>(EntityConfig)); // the hand-off's fragment and tag
+	}
 	Config.AddTrait(*NewObject<UMassLODCollectorTrait>(EntityConfig));
 
 	UMassMovableVisualizationTrait* Visualization = NewObject<UMassMovableVisualizationTrait>(EntityConfig);
@@ -324,6 +330,21 @@ void USHBenchmarkSubsystem::StartRun(UWorld& World, const double Now)
 			FPlatformMisc::RequestExitWithStatus(true, 3, TEXT("USHBenchmarkSubsystem: invalid run settings"));
 		}
 		return;
+	}
+
+	if (Settings.Config == ESHConfig::SH)
+	{
+		// The four demo channels, by property name on the actor-side component (02 section 4.1).
+		USHStateHandoffSubsystem* Handoff = World.GetSubsystem<USHStateHandoffSubsystem>();
+		if (!Handoff || !Handoff->RegisterChannels(USHAgentStateComponent::StaticClass(), { TEXT("Health"), TEXT("Cooldown"), TEXT("Memory"), TEXT("Reservation") }))
+		{
+			Phase = ERunPhase::Idle;
+			if (Settings.bExitWhenDone)
+			{
+				FPlatformMisc::RequestExitWithStatus(true, 3, TEXT("USHBenchmarkSubsystem: StateHandoff channels could not be registered"));
+			}
+			return;
+		}
 	}
 
 	const double SpawnStart = FPlatformTime::Seconds();

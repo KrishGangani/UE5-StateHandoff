@@ -26,6 +26,9 @@ struct FSHAgentView
 	/** The actor's B1 lifecycle component (null without an actor). Read only by the B1 rule. */
 	const USHLifecycleComponent* Lifecycle = nullptr;
 
+	/** SH only: StateHandoff has bound this actor (FSHHandoffFragment::BoundActor is the entity's actor). */
+	bool bHandoffBound = false;
+
 	/** The entity's copy of one channel. */
 	FSHChannelFragment& Entity(ESHChannel Channel) const;
 };
@@ -38,10 +41,10 @@ namespace SHRouter
 	 *   B0, B2: the actor's copy if the entity has an actor (even a disabled one), else the entity's.
 	 *   B1:     the actor's copy if its lifecycle component has hydrated it, else the entity's.
 	 *   B3:     always the entity's (entity-owned state; the actor's copy is never used).
-	 *   SH (S5) is added with its implementation; until then it uses the B0 rule, and the run refuses to start it.
+	 *   SH:     the actor's copy while StateHandoff has bound the actor, else the entity's (the ownership contract).
 	 */
 	FSHChannelFragment& Authoritative(ESHConfig Config, ESHChannel Channel, const FSHAgentView& View);
 
-	/** True once a configuration's rule is implemented (S3a: B0 to B3). */
+	/** True once a configuration's rule is implemented (all five since S5). */
 	bool IsImplemented(ESHConfig Config);
 }

@@ -25,6 +25,9 @@ namespace SHRouter
 		case ESHConfig::B1:
 			// The lifecycle pattern: the actor's components hold the state once BeginPlay / PrepareForGame hydrated them.
 			return View.ActorState && View.Lifecycle && View.Lifecycle->IsHydrated() ? View.ActorState->Get(Channel) : View.Entity(Channel);
+		case ESHConfig::SH:
+			// The contract: the actor owns the state only while StateHandoff has it bound (ActorWhileBound).
+			return View.ActorState && View.bHandoffBound ? View.ActorState->Get(Channel) : View.Entity(Channel);
 		case ESHConfig::B3:
 			// Entity-owned: actor-side code would read and write the entity directly.
 			return View.Entity(Channel);
@@ -39,6 +42,6 @@ namespace SHRouter
 
 	bool IsImplemented(const ESHConfig Config)
 	{
-		return Config == ESHConfig::B0 || Config == ESHConfig::B1 || Config == ESHConfig::B2 || Config == ESHConfig::B3;
+		return Config < ESHConfig::Count;
 	}
 }

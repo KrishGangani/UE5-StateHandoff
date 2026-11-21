@@ -35,6 +35,8 @@
 | 26 | `UMassRepresentationActorManagement`, `RepresentationActorManagementClass` | S3a |
 | 27 | `GetEntityHandleFromActor`, `GetFragmentDataStruct` | S3a |
 | 28 | Component ticking on demand, `EndPlay` reasons | S3a |
+| 29 | Property reflection: `FindPropertyByName`, `FStructProperty`, `ContainerPtrToValuePtr` | S5 |
+| 30 | Optional fragment requirements | S5 |
 
 Mass APIs are added here as they enter the code (S1: fragments, traits, spawning, processors, representation LOD settings; S2a: reflection-based comparison, automation tests; S2b: phases, chunk views, subsystem requirements; S3a: pooling, actor management, actor → entity lookups). Their verified behaviour is already in [01b_Research_Findings.md](01b_Research_Findings.md).
 
@@ -396,3 +398,25 @@ Mass APIs are added here as they enter the code (S1: fragments, traits, spawning
 6. **Common mistakes.** Leaving the tick on after the work is done; doing world work in `EndPlay` during teardown (`Quit`, `EndPlayInEditor`), when other systems are shutting down.
 7. **Example.** `if (!TryHydrate()) { SetComponentTickEnabled(true); }`
 8. **In this project.** `USHLifecycleComponent` (`05` E1).
+
+## 29. Property reflection: `FindPropertyByName`, `FStructProperty`, `ContainerPtrToValuePtr`
+
+1. **What it is.** `UStruct::FindPropertyByName` finds a reflected property of a class by name (`Source/Runtime/CoreUObject/Public/UObject/Class.h:663`); `CastField<FStructProperty>` checks it is a struct property; `ContainerPtrToValuePtr<void>(Object)` gives the address of that property inside one object.
+2. **Why it exists.** Generic code (serialisation, details panels, replication) works on any class without knowing it at compile time.
+3. **How it works.** Properties are `UPROPERTY` members; each `FProperty` knows its offset and type. Resolve once (by name), then reuse the `FProperty` pointer: the lookup is a search, the address computation is an offset.
+4. **When to use it.** A channel named in data (a component class and a property name).
+5. **When not to.** A hot path that would search by name every time.
+6. **Common mistakes.** Searching by name per frame; not checking the property's type before casting the memory; members without `UPROPERTY` (invisible to reflection).
+7. **Example.** `const FStructProperty* P = CastField<FStructProperty>(Class->FindPropertyByName(TEXT("Health")));`
+8. **In this project.** `USHStateHandoffSubsystem::RegisterChannels`, `RestoreToActor`, `CaptureFromActor` (`05` G1).
+
+## 30. Optional fragment requirements (`EMassFragmentPresence::Optional`)
+
+1. **What it is.** A query requirement that matches archetypes with **or** without the fragment (`Source/Runtime/MassEntity/Public/MassRequirements.h:66`).
+2. **Why it exists.** One processor can serve entities that differ only by an extra fragment.
+3. **How it works.** The fragment's view is filled when the chunk's archetype has it, and is empty otherwise **[inferred: the code tests `Num() > 0`; the empty view for a missing optional fragment is the documented Mass pattern, not read line by line here]**.
+4. **When to use it.** Data that only some configurations add.
+5. **When not to.** Data every matched entity must have (use `All`).
+6. **Common mistakes.** Indexing the view without checking `Num()`.
+7. **Example.** `Query.AddRequirement<FSHHandoffFragment>(EMassFragmentAccess::ReadOnly, EMassFragmentPresence::Optional);`
+8. **In this project.** The workload processors read SH's binding only where it exists (`05` G3).

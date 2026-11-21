@@ -1,6 +1,18 @@
 # 12 · Future Scalability: StateHandoff
 
-**Status:** filled in **Phase 10**. One entry is recorded early, below, because an owner decision in Phase 5 depends on it.
+**Status:** final (concise, owner direction 2026-11-21).
+
+## Growth path, in order
+
+1. **The missing release paths (S6):** capture in `OnPreActorSpawn` before an immediate release (template swaps), and an `OnEndPlay` safety net for actors destroyed by gameplay while bound; an observer that clears bindings when an entity is destroyed.
+2. **Proof of detection (S7):** fault injection per hand-off path (skip capture, skip restore, …), each of which must raise incidents; per-transition timing for SC4.
+3. **The measurement batches (S3b):** rotated runs with pooling off and on, timing with the checker off, a parked camera, the memory table.
+4. **Per-set channels:** a channel spec per entity type (`FSHChannelSpec` / a const shared fragment), ownership modes (`EntityOwned` vs `ActorWhileBound`), and editor validation.
+5. **Adapters** for state that isn't a reflected struct on a component (below).
+6. **Persistence and multiplayer:** the channels are already the "what must survive" list for a save system; once Mass entities replicate through Iris, the contract runs on the server only.
+7. **Batching:** hand-offs in one flip frame grouped by component class, only with data (the processor's p99 is 0.24 ms per frame at N = 4,000 today, checker on).
+
+One entry below was recorded early, because an owner decision in Phase 5 depends on it.
 
 **Will contain:** How the design grows: adapters for GAS and blackboards, persistence, replication once Mass entities replicate through Iris, editor validation, batched captures. The first list is in 02_System_Architecture.md §11.
 

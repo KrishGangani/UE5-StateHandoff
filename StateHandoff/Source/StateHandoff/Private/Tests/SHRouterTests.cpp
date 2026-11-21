@@ -72,10 +72,15 @@ bool FSHRouterRulesTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("B1, %s, actor hydrated: actor"), *Name), &SHRouter::Authoritative(ESHConfig::B1, Channel, WithActor) == ActorCopy);
 		FSHRouterTestAccess::SetHydrated(*Lifecycle, false);
 		TestTrue(FString::Printf(TEXT("B3, %s, actor: still entity"), *Name), &SHRouter::Authoritative(ESHConfig::B3, Channel, WithActor) == EntityCopy);
+		WithActor.bHandoffBound = false;
+		TestTrue(FString::Printf(TEXT("SH, %s, actor not bound: entity"), *Name), &SHRouter::Authoritative(ESHConfig::SH, Channel, WithActor) == EntityCopy);
+		WithActor.bHandoffBound = true;
+		TestTrue(FString::Printf(TEXT("SH, %s, actor bound: actor"), *Name), &SHRouter::Authoritative(ESHConfig::SH, Channel, WithActor) == ActorCopy);
+		WithActor.bHandoffBound = false;
 	}
 	TestTrue(TEXT("B0-B3 implemented"), SHRouter::IsImplemented(ESHConfig::B0) && SHRouter::IsImplemented(ESHConfig::B1)
 		&& SHRouter::IsImplemented(ESHConfig::B2) && SHRouter::IsImplemented(ESHConfig::B3));
-	TestFalse(TEXT("SH not implemented until S5"), SHRouter::IsImplemented(ESHConfig::SH));
+	TestTrue(TEXT("SH implemented"), SHRouter::IsImplemented(ESHConfig::SH));
 	return true;
 }
 

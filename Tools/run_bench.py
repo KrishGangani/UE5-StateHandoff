@@ -179,8 +179,11 @@ def collect(name: str, started: float) -> dict:
 
 
 def is_failure(record: dict) -> bool:
-    baseline_idle = (record.get("config") in COPYING_BASELINES
-                     and int(record.get("checker", {}).get("baselinecopies", "0")) == 0)
+    # A B1/B2 run with representation changes but no copies of its own: the baseline never ran. (A parked run has no
+    # transitions, so no actor appears or goes away and no copy is due.)
+    checker = record.get("checker", {})
+    baseline_idle = (record.get("config") in COPYING_BASELINES and int(checker.get("transitions", "0")) > 0
+                     and int(checker.get("baselinecopies", "0")) == 0)
     return (record.get("exit_code") != 0 or "stats" not in record or record.get("log_errors")
             or record.get("log_missing") or record.get("finalised") is False or "analysis_error" in record
             or "checker" not in record or baseline_idle)
